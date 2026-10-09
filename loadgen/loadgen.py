@@ -12,6 +12,11 @@ latencies are missing from meta_info and those columns stay empty.
 One CSV row is appended (and flushed) per turn finished within --duration.
 All latencies are in seconds; t_send / t_end are unix timestamps.
 
+--sessions-output gets one row per arrival in the schedule, including sessions
+cut at the window end and sessions that had not arrived yet, so a censored JCT
+min(t_end, window_end) - t_arrival can be computed over every arrived session
+(see analyze_jct.py).
+
 Usage:
     python loadgen.py --corpus hermes_clean.jsonl \
         --arrivals session_arrival.jsonl \
@@ -56,6 +61,25 @@ CSV_COLUMNS = [
     "expected_decode_tokens",
     "fidelity_ok",
     "status",
+    "error",
+]
+
+
+SESSION_COLUMNS = [
+    "replica_id",
+    "session_id",
+    "endpoint",
+    "arrival_offset",
+    "t_arrival",
+    "t_end",
+    # done | cut (window ended mid-session) | failed | not_arrived
+    "status",
+    "turns_total",
+    "turns_done",
+    # Tool wait actually elapsed; a wait interrupted by the window end counts partially.
+    "tool_wait_s",
+    "window_start",
+    "window_end",
     "error",
 ]
 
@@ -250,6 +274,27 @@ class Recorder:
         self._f.close()
 
 
+class SessionRecorder:
+    """Writes one row per arrival when its replay task ends, however it ends."""
+
+    def __init__(self, path: str):
+        self._f = open(path, "w", newline="")
+        self._w = csv.DictWriter(self._f, fieldnames=SESSION_COLUMNS)
+        self._w.writeheader()
+        self._f.flush()
+        # Set once the replay clock starts; unix times.
+        self.window_start = None
+        self.window_end = None
+
+    def write(self, row: dict):
+        row = dict(row, window_start=self.window_start, window_end=self.window_end)
+        self._w.writerow({k: "" if v is None else v for k, v in row.items()})
+        self._f.flush()
+
+    def close(self):
+        self._f.close()
+
+
 def _next_ctx(*, turn: dict, ctx_before, ctx_after, salt: list) -> list:
     if turn["prompt_reset"]:
         return _insert_salt(ids=turn["prefill_token_ids"], salt=salt)
@@ -265,11 +310,50 @@ async def _replay_session(
     salt: list,
     t0: float,
     rec: Recorder,
+    srec: SessionRecorder,
 ):
-    await asyncio.sleep(max(0.0, t0 + arrival.arrival_offset - time.monotonic()))
+    turns = session["turns"]
+    state = {
+        "status": "not_arrived",
+        "t_arrival": None,
+        "t_end": None,
+        "turns_done": 0,
+        "tool_wait_s": 0.0,
+        "error": "",
+    }
+    try:
+        await asyncio.sleep(max(0.0, t0 + arrival.arrival_offset - time.monotonic()))
+        state.update(status="cut", t_arrival=time.time())
+        await _replay_turns(
+            http=http, arrival=arrival, turns=turns, salt=salt, rec=rec, state=state
+        )
+    finally:
+        if state["status"] == "cut":
+            state["t_end"] = srec.window_end
+        srec.write(
+            {
+                "replica_id": arrival.replica_id,
+                "session_id": arrival.session_id,
+                "endpoint": arrival.endpoint,
+                "arrival_offset": arrival.arrival_offset,
+                "t_arrival": _fmt_ts(state["t_arrival"]),
+                "t_end": _fmt_ts(state["t_end"]),
+                "status": state["status"],
+                "turns_total": len(turns),
+                "turns_done": state["turns_done"],
+                "tool_wait_s": f"{state['tool_wait_s']:.3f}",
+                "error": state["error"],
+            }
+        )
+
+
+async def _replay_turns(
+    *, http: aiohttp.ClientSession, arrival: Arrival, turns: list, salt: list,
+    rec: Recorder, state: dict,
+):
+    """Replays every turn; leaves state["status"] at "cut" if cancelled mid-way."""
     rec.sessions_active += 1
     ctx_before = ctx_after = None
-    turns = session["turns"]
     try:
         for i, turn in enumerate(turns):
             ctx = _next_ctx(
@@ -288,16 +372,35 @@ async def _replay_session(
                 # The context cannot be continued without this turn's output.
                 rec.write(_error_row(arrival=arrival, turn=turn, input_len=len(ctx), err=e))
                 rec.sessions_failed += 1
+                state.update(
+                    status="failed", t_end=time.time(),
+                    error=f"{type(e).__name__}: {e}"[:200],
+                )
                 return
             finally:
                 rec.requests_inflight -= 1
             rec.write(_turn_row(arrival=arrival, turn=turn, input_len=len(ctx), res=res))
+            if res.t_end <= rec.deadline:
+                state["turns_done"] += 1
             ctx_before, ctx_after = ctx, ctx + res.output_ids + [IM_END]
             if i + 1 < len(turns):
-                await asyncio.sleep(turn["turn_toolcall_latency_ms"] / 1000)
+                await _tool_wait(seconds=turn["turn_toolcall_latency_ms"] / 1000, state=state)
         rec.sessions_done += 1
+        state.update(status="done", t_end=res.t_end)
     finally:
         rec.sessions_active -= 1
+
+
+async def _tool_wait(*, seconds: float, state: dict):
+    t_start = time.monotonic()
+    try:
+        await asyncio.sleep(seconds)
+    finally:
+        state["tool_wait_s"] += time.monotonic() - t_start
+
+
+def _fmt_ts(t: Optional[float]) -> str:
+    return "" if t is None else f"{t:.6f}"
 
 
 def _error_row(*, arrival: Arrival, turn: dict, input_len: int, err: Exception) -> dict:
@@ -342,18 +445,21 @@ async def run(args):
     timeout = aiohttp.ClientTimeout(total=args.request_timeout)
     connector = aiohttp.TCPConnector(limit=0)
     rec = Recorder(args.output)
+    srec = SessionRecorder(args.sessions_output or _default_sessions_path(args.output))
     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as http:
         salts = await _fetch_salts(
             http=http, endpoint=endpoints[0], replica_ids=[a.replica_id for a in arrivals]
         )
         t0 = time.monotonic()
+        srec.window_start = time.time()
         progress = asyncio.create_task(
             _report_progress(
                 rec=rec, total=len(arrivals), t0=t0, interval=args.progress_interval
             )
         )
         if args.duration is not None:
-            rec.deadline = time.time() + args.duration
+            srec.window_end = srec.window_start + args.duration
+            rec.deadline = srec.window_end
         replay = asyncio.gather(
             *(
                 _replay_session(
@@ -363,6 +469,7 @@ async def run(args):
                     salt=salts[a.replica_id],
                     t0=t0,
                     rec=rec,
+                    srec=srec,
                 )
                 for a in arrivals
             )
@@ -378,6 +485,7 @@ async def run(args):
             await asyncio.gather(replay, return_exceptions=True)
         progress.cancel()
     rec.close()
+    srec.close()
 
     mismatch_ratio = rec.turns_mismatch / max(rec.turns_ok, 1)
     print(
@@ -395,6 +503,10 @@ async def run(args):
         )
 
 
+def _default_sessions_path(output: str) -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(output)), "sessions.csv")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__.split("\n\n")[0],
@@ -406,6 +518,11 @@ def main():
         "--endpoints", required=True, help="comma-separated SGLang base URLs"
     )
     parser.add_argument("--output", required=True, help="per-turn CSV (appended)")
+    parser.add_argument(
+        "--sessions-output",
+        default=None,
+        help="per-session CSV (overwritten; default: sessions.csv next to --output)",
+    )
     parser.add_argument(
         "--request-timeout",
         type=float,

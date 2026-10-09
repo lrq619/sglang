@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loadgen Board</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f5f5f5;
+  --surface: #ffffff;
+  --header: #f57c00;
+  --header-ink: #ffffff;
+  --ink: #212121;
+  --ink-2: #616161;
+  --ink-3: #9e9e9e;
+  --rule: #e0e0e0;
+  --grid: #eeeeee;
+  --select: #fff3e0;
+  --done: #2e9d4a;
+  --failed: #e34948;
+  --pending: #d6d6d3;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121212; --surface: #1e1e1e; --header: #c05f00; --header-ink: #ffffff;
+    --ink: #eeeeee; --ink-2: #bdbdbd; --ink-3: #808080; --rule: #333333; --grid: #2a2a2a;
+    --select: #3a2a14; --done: #3aa65a; --failed: #e66767; --pending: #444442;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121212; --surface: #1e1e1e; --header: #c05f00; --header-ink: #ffffff;
+  --ink: #eeeeee; --ink-2: #bdbdbd; --ink-3: #808080; --rule: #333333; --grid: #2a2a2a;
+  --select: #3a2a14; --done: #3aa65a; --failed: #e66767; --pending: #444442;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 13px/1.4 Roboto, "Helvetica Neue", Arial, sans-serif;
+  display: flex; flex-direction: column;
+}
+header {
+  background: var(--header); color: var(--header-ink);
+  height: 48px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25); z-index: 2;
+}
+header h1 { font-size: 18px; font-weight: 500; margin: 0; letter-spacing: .2px; }
+header .tab { text-transform: uppercase; font-size: 13px; font-weight: 500; opacity: .9;
+  border-bottom: 2px solid var(--header-ink); padding: 13px 4px; }
+header .spacer { flex: 1; }
+header button, header label { color: var(--header-ink); font: inherit; }
+header button { background: transparent; border: 0; cursor: pointer; padding: 6px 8px; border-radius: 4px; font-size: 16px; }
+header button:hover { background: rgba(255,255,255,.15); }
+header label { display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; }
+#status { font-size: 11px; opacity: .9; max-width: 45vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#status.bad { opacity: 1; background: var(--surface); color: var(--failed); padding: 3px 8px; border-radius: 10px; font-weight: 500; }
+.layout { flex: 1; display: flex; min-height: 0; }
+aside {
+  width: 280px; flex: none; background: var(--surface); border-right: 1px solid var(--rule);
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+}
+#splitter { width: 5px; flex: none; cursor: col-resize; margin-left: -3px; z-index: 1; }
+#splitter:hover, #splitter.drag { background: var(--header); opacity: .5; }
+body.resizing { cursor: col-resize; user-select: none; }
+aside .head { padding: 12px 16px 8px; font-weight: 500; color: var(--ink-2); font-size: 12px; text-transform: uppercase; }
+aside input[type=search] {
+  margin: 0 16px 8px; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 4px;
+  background: var(--bg); color: var(--ink); font: inherit;
+}
+aside .root { padding: 0 16px 8px; color: var(--ink-3); font-size: 11px; word-break: break-all; }
+#runs { flex: 1; overflow-y: auto; border-top: 1px solid var(--rule); }
+.run {
+  display: flex; align-items: center; gap: 8px; padding: 7px 16px; cursor: pointer;
+  border-left: 3px solid transparent;
+}
+.run:hover { background: var(--bg); }
+.run.sel { background: var(--select); border-left-color: var(--header); }
+.run .name { flex: 1; font-family: "Roboto Mono", Menlo, monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run .tag { font-size: 10px; color: var(--ink-3); }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+main { flex: 1; overflow-y: auto; padding: 16px; min-width: 0; }
+.empty { color: var(--ink-3); padding: 40px; text-align: center; }
+.info { background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 10px 14px;
+  display: flex; flex-wrap: wrap; gap: 4px 24px; margin-bottom: 16px; font-size: 12px; }
+.info b { color: var(--ink-2); font-weight: 500; margin-right: 4px; }
+details.section { margin-bottom: 16px; }
+details.section > summary {
+  cursor: pointer; list-style: none; padding: 8px 4px; font-size: 14px; font-weight: 500; color: var(--ink);
+  display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--rule); margin-bottom: 12px;
+}
+details.section > summary::before { content: "\25B8"; color: var(--ink-3); transition: transform .15s; }
+details.section[open] > summary::before { transform: rotate(90deg); }
+details.section > summary .sub { color: var(--ink-3); font-weight: 400; font-size: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 12px 14px; min-width: 0; position: relative; }
+.card h3 { margin: 0 0 6px; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+.card h3 .opts { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+.card h3 .opt { font-weight: 400; font-size: 11px; color: var(--ink-2); display: flex; gap: 4px; align-items: center; cursor: pointer; }
+.card h3 input[type=range] { width: 90px; accent-color: var(--header); margin: 0; }
+.card h3 .sval { width: 28px; font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--ink-2); margin-bottom: 4px; min-height: 16px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+.legend span.off { opacity: .35; }
+.legend i { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+.chart { width: 100%; height: 240px; position: relative; }
+.chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.chart text { fill: var(--ink-3); font-size: 10px; }
+.chart .axis-label { fill: var(--ink-2); font-size: 11px; }
+.chart .gridline { stroke: var(--grid); stroke-width: 1; }
+.chart .baseline { stroke: var(--rule); stroke-width: 1; }
+.chart .series { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .cross { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart .hot { stroke: var(--surface); stroke-width: 2; }
+.tip {
+  position: fixed; pointer-events: none; z-index: 10; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 4px; padding: 6px 8px; font-size: 11px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.18); white-space: nowrap; display: none;
+}
+.tip .t { color: var(--ink-2); margin-bottom: 3px; font-weight: 500; }
+.tip .r { display: flex; align-items: center; gap: 6px; }
+.tip .r i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.tip .r b { margin-left: auto; padding-left: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
+table.stats { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px; font-variant-numeric: tabular-nums; }
+table.stats th, table.stats td { text-align: right; padding: 2px 6px; border-top: 1px solid var(--rule); }
+table.stats th { color: var(--ink-3); font-weight: 500; }
+table.stats td:first-child, table.stats th:first-child { text-align: left; }
+.progress-card { background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 12px 14px; }
+.psum { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-bottom: 10px; font-size: 12px; color: var(--ink-2); }
+.psum b { color: var(--ink); font-weight: 500; font-size: 15px; margin-right: 4px; }
+.pkey { display: inline-flex; gap: 12px; margin-left: auto; font-size: 11px; }
+.pkey span { display: inline-flex; align-items: center; gap: 4px; }
+.pkey i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.bars { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; align-items: flex-end; }
+.bar { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: none; }
+.bar .cells { display: flex; flex-direction: column-reverse; gap: 1px; width: 14px; }
+.bar .cells div { width: 14px; border-radius: 2px; background: var(--pending); }
+.bar .cells div.ok { background: var(--done); }
+.bar .cells div.fail { background: var(--failed); }
+.bar .cells div:hover { outline: 2px solid var(--ink); outline-offset: 0; }
+.bar .lbl { font-size: 10px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.bar .frac { font-size: 10px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.bar.complete .lbl { color: var(--done); font-weight: 500; }
+.err { color: var(--failed); padding: 12px; }
+@media (max-width: 720px) {
+  .layout { flex-direction: column; }
+  aside { width: 100% !important; max-height: 200px; }
+  #splitter { display: none; }
+  .grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Loadgen Board</h1>
+  <span class="tab">Runs</span>
+  <span class="spacer"></span>
+  <span id="status"></span>
+  <label title="Re-fetch the selected run every 10 s"><input type="checkbox" id="auto" checked> auto-reload</label>
+  <button id="reload" title="Reload">&#x21bb;</button>
+  <button id="theme" title="Toggle theme">&#x25D0;</button>
+</header>
+<div class="layout">
+  <aside>
+    <div class="head">Runs</div>
+    <input type="search" id="filter" placeholder="Filter runs (regex)">
+    <div class="root" id="root"></div>
+    <div id="runs"></div>
+  </aside>
+  <div id="splitter" title="Drag to resize"></div>
+  <main id="main"><div class="empty">Select a run on the left.</div></main>
+</div>
+<div class="tip" id="tip"></div>
+<script>
+"use strict";
+const SERIES_VARS = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--s7", "--s8"];
+const LAT_COMPONENTS = [
+  ["turn_queuing_latency", "queuing"],
+  ["turn_prefill_latency", "prefill"],
+  ["turn_decode_latency", "decode"],
+  ["turn_toolcall_latency", "toolcall"],
+  ["server_e2e_latency", "server e2e"],
+];
+const FETCH_TIMEOUT_MS = 20000;
+const RELOAD_INTERVAL_MS = 10000;
+// cache: run name -> {etag, data}, so a 304 or a failed reload keeps the last good data.
+const state = { runs: [], selected: null, data: null, loadError: null, cache: {}, hidden: {}, logScale: {}, smoothing: {} };
+const $ = (s) => document.querySelector(s);
+const tip = $("#tip");
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// ---------- formatting ----------
+function fmtSec(v) {
+  if (v == null || !isFinite(v)) return "-";
+  const a = Math.abs(v);
+  if (a === 0) return "0";
+  if (a < 1e-3) return (v * 1e6).toFixed(0) + " us";
+  if (a < 1) return (v * 1e3).toFixed(a < 0.01 ? 2 : 1) + " ms";
+  if (a < 100) return v.toFixed(2) + " s";
+  return v.toFixed(0) + " s";
+}
+function fmtNum(v, d = 2) {
+  if (v == null || !isFinite(v)) return "-";
+  if (Math.abs(v) >= 1000) return v.toFixed(0);
+  return +v.toFixed(d) + "";
+}
+const fmtPct = (v) => (v == null ? "-" : (v * 100).toFixed(1) + "%");
+function fmtClock(t) {
+  const m = Math.floor(t / 60), s = t - m * 60;
+  return m > 0 ? `${m}:${s.toFixed(0).padStart(2, "0")}` : `${s.toFixed(0)}s`;
+}
+
+// ---------- scales & ticks ----------
+function niceTicks(lo, hi, n = 5) {
+  if (!(hi > lo)) { hi = lo + 1; }
+  const step0 = (hi - lo) / n;
+  const mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const err = step0 / mag;
+  const step = (err >= 7.5 ? 10 : err >= 3.5 ? 5 : err >= 1.5 ? 2 : 1) * mag;
+  const ticks = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) ticks.push(+v.toPrecision(12));
+  return ticks;
+}
+function logTicks(lo, hi) {
+  for (const mults of [[1], [1, 2, 5], [1, 2, 3, 5, 7]]) {
+    const ticks = [];
+    for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++)
+      for (const k of mults) {
+        const v = k * Math.pow(10, e);
+        if (v >= lo * 0.999 && v <= hi * 1.001) ticks.push(+v.toPrecision(6));
+      }
+    if (ticks.length >= 3) return ticks;
+  }
+  return [lo, hi];
+}
+// Loops instead of Math.min(...a): spreading 100k+ values overflows the call stack.
+const arrMin = (a) => a.reduce((x, y) => (y < x ? y : x), Infinity);
+const arrMax = (a) => a.reduce((x, y) => (y > x ? y : x), -Infinity);
+// Maps data values to [0, 1] along one axis; min/max pin an end, else it is fit to the data.
+function buildAxis({ vals, log, min, max, n }) {
+  if (log) {
+    const pos = vals.filter((v) => v > 0);
+    let a = min > 0 ? min : arrMin(pos), b = max ?? arrMax(pos);
+    a = Math.pow(10, Math.floor(Math.log10(a) * 4) / 4);
+    b = Math.pow(10, Math.ceil(Math.log10(b) * 4) / 4);
+    if (b <= a) b = a * 10;
+    const la = Math.log10(a), lb = Math.log10(b);
+    return { log, ticks: logTicks(a, b), ok: (v) => v > 0, t: (v) => (Math.log10(Math.max(v, a)) - la) / (lb - la) };
+  }
+  let a = min ?? arrMin(vals), b = max ?? arrMax(vals);
+  if (b <= a) b = a + 1;
+  let ticks = niceTicks(a, b, n);
+  if (max == null) b = Math.max(b, ticks[ticks.length - 1]);
+  ticks = ticks.filter((v) => v >= a - 1e-12 && v <= b + 1e-12);
+  return { log, ticks, ok: (v) => v != null && isFinite(v), t: (v) => (v - a) / (b - a) };
+}
+
+// ---------- generic interactive chart ----------
+// series: [{name, color, pts: [[x, y, meta?], ...] sorted by x}]
+// Lines, stepped with opt.step; hover snaps each series to the cursor's x.
+function lineChart(el, series, opt) {
+  el.innerHTML = "";
+  const W = el.clientWidth, H = el.clientHeight;
+  const m = { l: 52, r: 12, t: 8, b: 34 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const okX = (v) => v != null && isFinite(v) && (!opt.logX || v > 0);
+  const okY = (v) => v != null && isFinite(v) && (!opt.logY || v > 0);
+  const visible = series
+    .filter((s) => !s.off)
+    .map((s) => ({ ...s, pts: s.pts.filter((p) => okX(p[0]) && okY(p[1])) }))
+    .filter((s) => s.pts.length);
+  if (!visible.length) {
+    el.innerHTML = `<div class="empty">${esc(opt.emptyText || "no data")}</div>`;
+    return;
+  }
+  const xs = [], ys = [];
+  for (const s of visible) for (const p of s.pts) { xs.push(p[0]); ys.push(p[1]); }
+  const ax = buildAxis({ vals: xs, log: opt.logX, min: opt.xMin, max: opt.xMax, n: Math.max(2, Math.floor(iw / 80)) });
+  const ay = buildAxis({ vals: ys, log: opt.logY, min: opt.logY ? undefined : opt.yMin ?? Math.min(0, arrMin(ys)), max: opt.yMax, n: 4 });
+  const sx = (x) => m.l + ax.t(x) * iw;
+  const sy = (y) => m.t + ih - ay.t(y) * ih;
+  const xf = opt.xFmt || fmtNum, yf = opt.yFmt || fmtNum;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+  for (const v of ay.ticks) svg += `<line class="gridline" x1="${m.l}" x2="${m.l + iw}" y1="${sy(v)}" y2="${sy(v)}"/><text x="${m.l - 6}" y="${sy(v) + 3}" text-anchor="end">${esc(yf(v))}</text>`;
+  for (const v of ax.ticks) svg += `<text x="${sx(v)}" y="${m.t + ih + 14}" text-anchor="middle">${esc(xf(v))}</text>`;
+  svg += `<line class="baseline" x1="${m.l}" x2="${m.l + iw}" y1="${m.t + ih}" y2="${m.t + ih}"/>`;
+  svg += `<text class="axis-label" x="${m.l + iw / 2}" y="${H - 2}" text-anchor="middle">${esc(opt.xLabel || "")}</text>`;
+  svg += `<text class="axis-label" transform="translate(11 ${m.t + ih / 2}) rotate(-90)" text-anchor="middle">${esc(opt.yLabel || "")}</text>`;
+  svg += `<defs><clipPath id="clip-${el.id}"><rect x="${m.l - 4}" y="${m.t - 4}" width="${iw + 8}" height="${ih + 8}"/></clipPath></defs><g clip-path="url(#clip-${el.id})">`;
+  for (const s of visible) {
+    let d = "";
+    s.pts.forEach((p, i) => {
+      const X = sx(p[0]).toFixed(1), Y = sy(p[1]).toFixed(1);
+      if (i === 0) d += `M${X},${Y}`;
+      else if (opt.step) d += `H${X}V${Y}`;
+      else d += `L${X},${Y}`;
+    });
+    svg += `<path class="series" d="${d}" stroke="${s.color}"${s.faint ? ' stroke-opacity=".25"' : ""}/>`;
+    if (s.pts.length === 1) svg += `<circle cx="${sx(s.pts[0][0])}" cy="${sy(s.pts[0][1])}" r="3" fill="${s.color}"/>`;
+  }
+  svg += `</g><g class="hover"></g><rect x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent"/></svg>`;
+  el.innerHTML = svg;
+
+  const root = el.querySelector("svg"), hover = root.querySelector(".hover");
+  root.addEventListener("mousemove", (ev) => {
+    const r = root.getBoundingClientRect();
+    const px = ((ev.clientX - r.left) / r.width) * W;
+    if (px < m.l - 4 || px > m.l + iw + 4) return hide();
+    // Snap to the data point nearest the cursor in x, per series.
+    const hits = [];
+    for (const s of visible) {
+      if (s.faint) continue;
+      const pts = s.pts;
+      let lo = 0, hi = pts.length - 1;
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (sx(pts[mid][0]) < px) lo = mid; else hi = mid; }
+      const p = Math.abs(sx(pts[lo][0]) - px) <= Math.abs(sx(pts[hi][0]) - px) ? pts[lo] : pts[hi];
+      if (Math.abs(sx(p[0]) - px) < 40) hits.push({ s, p });
+    }
+    if (!hits.length) return hide();
+    const anchorX = opt.sharedX ? hits.reduce((a, h) => (Math.abs(sx(h.p[0]) - px) < Math.abs(sx(a.p[0]) - px) ? h : a)).p[0] : null;
+    let g = "";
+    if (anchorX != null) g += `<line class="cross" x1="${sx(anchorX)}" x2="${sx(anchorX)}" y1="${m.t}" y2="${m.t + ih}"/>`;
+    for (const h of hits) g += `<circle class="hot" cx="${sx(h.p[0])}" cy="${sy(h.p[1])}" r="4.5" fill="${h.s.color}"/>`;
+    hover.innerHTML = g;
+    let html = anchorX != null ? `<div class="t">${esc(opt.xLabel || "x")}: ${esc(xf(anchorX))}</div>` : "";
+    for (const h of hits) {
+      const val = opt.tipFmt ? opt.tipFmt(h.p, h.s) : esc(yf(h.p[1]));
+      html += `<div class="r"><i style="background:${h.s.color}"></i>${esc(h.s.name)}<b>${val}</b></div>`;
+    }
+    showTip(html, ev);
+  });
+  root.addEventListener("mouseleave", hide);
+  function hide() { hover.innerHTML = ""; tip.style.display = "none"; }
+}
+
+function showTip(html, ev) {
+  tip.innerHTML = html;
+  tip.style.display = "block";
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = ev.clientX + 14, y = ev.clientY + 14;
+  if (x + w > innerWidth - 8) x = ev.clientX - w - 14;
+  if (y + h > innerHeight - 8) y = ev.clientY - h - 14;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+
+function legend(el, series, key) {
+  el.innerHTML = "";
+  if (series.length < 2) return;
+  for (const s of series) {
+    const sp = document.createElement("span");
+    sp.className = s.off ? "off" : "";
+    sp.innerHTML = `<i style="background:${s.color}"></i>${esc(s.name)}`;
+    sp.onclick = () => { state.hidden[key + "/" + s.name] = !s.off; render(); };
+    el.appendChild(sp);
+  }
+}
+
+// ---------- stats ----------
+function quantile(sorted, q) {
+  if (!sorted.length) return null;
+  const i = (sorted.length - 1) * q, lo = Math.floor(i), hi = Math.ceil(i);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+}
+function cdfPoints(values) {
+  const v = values.filter((x) => x != null && isFinite(x)).sort((a, b) => a - b);
+  return { sorted: v, pts: v.map((x, i) => [x, (i + 1) / v.length]) };
+}
+
+// ---------- data shaping ----------
+function sessionStats(d) {
+  const byReplica = new Map();
+  for (const s of d.sessions) byReplica.set(s.replica_id, { ...s, turns: new Map() });
+  for (const t of d.turns) {
+    let s = byReplica.get(t.replica_id);
+    if (!s) { s = { replica_id: t.replica_id, session_id: "?", total_turns: null, turns: new Map() }; byReplica.set(t.replica_id, s); }
+    s.turns.set(t.turn_id, t);
+  }
+  const out = [...byReplica.values()].sort((a, b) => a.replica_id - b.replica_id);
+  for (const s of out) {
+    const rows = [...s.turns.values()];
+    s.ok = rows.filter((r) => r.status === "ok").length;
+    s.failed = rows.length - s.ok;
+    s.complete = s.total_turns != null && s.ok >= s.total_turns;
+    s.start = rows.length ? Math.min(...rows.map((r) => r.t_send)) : null;
+    s.e2e = s.complete ? Math.max(...rows.map((r) => r.t_end)) - s.start : null;
+  }
+  return out;
+}
+
+// ---------- rendering ----------
+function render() {
+  const main = $("#main");
+  const d = state.data;
+  if (!d) {
+    if (state.loadError) main.innerHTML = `<div class="err">failed to load ${esc(state.selected)}: ${esc(state.loadError)}<br>retrying on the next reload</div>`;
+    return;
+  }
+  const scrollTop = main.scrollTop;
+  const openState = {};
+  main.querySelectorAll("details.section").forEach((el) => (openState[el.dataset.key] = el.open));
+  const isOpen = (k) => (openState[k] === undefined ? true : openState[k]);
+  const sessions = sessionStats(d);
+  const info = d.info || {};
+
+  main.innerHTML = `
+    <div class="info">${["host", "start", "end", "duration_s", "rate_per_min", "model", "corpus", "arrivals", "git"]
+      .filter((k) => info[k]).map((k) => `<span><b>${k}</b>${esc(k === "model" || k === "corpus" || k === "arrivals" ? info[k].split("/").pop() : info[k])}</span>`).join("")}
+      ${info.end ? "" : `<span style="color:var(--header)"><b>status</b>no end time (running or aborted)</span>`}</div>
+    <details class="section" data-key="progress" ${isOpen("progress") ? "open" : ""}><summary>Session progress <span class="sub">one bar per session, bottom = first turn</span></summary><div id="progress"></div></details>
+    <details class="section" data-key="req" ${isOpen("req") ? "open" : ""}><summary>Request metrics <span class="sub">CDF over finished turns / sessions</span></summary><div class="grid" id="req"></div></details>
+    <details class="section" data-key="req-time" ${isOpen("req-time") ? "open" : ""}><summary>Request metrics vs. time <span class="sub">one point per turn at its send time, per session at its first send</span></summary><div class="grid" id="req-time"></div></details>
+    <details class="section" data-key="srv" ${isOpen("srv") ? "open" : ""}><summary>Server metrics <span class="sub">sampled from /metrics, one line per endpoint</span></summary><div class="grid" id="srv"></div></details>`;
+
+  renderProgress($("#progress"), sessions);
+  const t0 = runStartTime(d);
+  renderRequest($("#req"), sessions, d.turns);
+  renderRequestTime($("#req-time"), sessions, d.turns, t0);
+  renderServer($("#srv"), d, t0);
+  main.scrollTop = scrollTop;
+}
+
+function renderProgress(el, sessions) {
+  const total = sessions.reduce((a, s) => a + (s.total_turns || 0), 0);
+  const ok = sessions.reduce((a, s) => a + s.ok, 0);
+  const failed = sessions.reduce((a, s) => a + s.failed, 0);
+  const complete = sessions.filter((s) => s.complete).length;
+  const started = sessions.filter((s) => s.turns.size > 0).length;
+  const maxTurns = Math.max(1, ...sessions.map((s) => Math.max(s.total_turns || 0, s.turns.size)));
+  const cellH = Math.max(2, Math.min(10, Math.floor(260 / maxTurns) - 1));
+  let html = `<div class="progress-card"><div class="psum">
+    <span><b>${complete}</b>/ ${sessions.length} sessions complete</span>
+    <span><b>${started}</b>started</span>
+    <span><b>${ok}</b>/ ${total || "?"} turns done</span>
+    ${failed ? `<span><b style="color:var(--failed)">${failed}</b>turns failed</span>` : ""}
+    <span class="pkey"><span><i style="background:var(--done)"></i>done</span><span><i style="background:var(--failed)"></i>failed</span><span><i style="background:var(--pending)"></i>not done</span></span>
+  </div><div class="bars">`;
+  sessions.forEach((s, si) => {
+    const ids = [...s.turns.keys()];
+    const base = s.first_turn ?? (ids.length ? Math.min(...ids) : 0);
+    const n = Math.max(s.total_turns || 0, ids.length ? Math.max(...ids) - base + 1 : 0);
+    let cells = "";
+    for (let i = 0; i < n; i++) {
+      const t = s.turns.get(i + base);
+      cells += `<div data-s="${si}" data-t="${i + base}" class="${t ? (t.status === "ok" ? "ok" : "fail") : ""}" style="height:${cellH}px"></div>`;
+    }
+    html += `<div class="bar ${s.complete ? "complete" : ""}" data-s="${si}"><div class="frac">${s.ok}/${s.total_turns ?? "?"}</div><div class="cells">${cells}</div><div class="lbl">r${s.replica_id}</div></div>`;
+  });
+  html += `</div></div>`;
+  el.innerHTML = html;
+  el.querySelectorAll(".bar").forEach((bar) => {
+    bar.addEventListener("mousemove", (ev) => {
+      const s = sessions[+bar.dataset.s];
+      const cell = ev.target.closest(".cells div");
+      let html = `<div class="t">replica ${s.replica_id} &middot; ${esc(s.session_id)}</div>
+        <div class="r">turns done<b>${s.ok} / ${s.total_turns ?? "?"}</b></div>
+        ${s.arrival_offset != null ? `<div class="r">arrival offset<b>${fmtSec(s.arrival_offset)}</b></div>` : ""}
+        ${s.e2e != null ? `<div class="r">session e2e<b>${fmtSec(s.e2e)}</b></div>` : ""}`;
+      if (cell) {
+        const t = s.turns.get(+cell.dataset.t);
+        html += `<div class="t" style="margin-top:6px">turn ${cell.dataset.t}</div>`;
+        if (t) {
+          html += `<div class="r">status<b>${esc(t.status)}</b></div><div class="r">e2e<b>${fmtSec(t.turn_e2e_latency)}</b></div>
+            <div class="r">queuing<b>${fmtSec(t.turn_queuing_latency)}</b></div><div class="r">prefill<b>${fmtSec(t.turn_prefill_latency)}</b></div>
+            <div class="r">decode<b>${fmtSec(t.turn_decode_latency)}</b></div><div class="r">kvc hit<b>${fmtPct(t.kvc_hit_ratio)}</b></div>
+            ${t.error ? `<div class="r">error<b>${esc(t.error.slice(0, 60))}</b></div>` : ""}`;
+        } else html += `<div class="r">not done</div>`;
+      }
+      showTip(html, ev);
+    });
+    bar.addEventListener("mouseleave", () => (tip.style.display = "none"));
+  });
+}
+
+// logToggle: {axis: "x" | "y", on: default state}; the viewer's choice is kept per card.
+// logToggle: {axis: "x" | "y", on: default state}; smoothing adds an EMA slider.
+// The viewer's choices are kept per card across re-renders.
+function addCard(parent, { id, title, logToggle, smoothing }) {
+  const card = document.createElement("div");
+  card.className = "card";
+  const log = logToggle ? state.logScale[id] ?? logToggle.on : false;
+  const w = state.smoothing[id] || 0;
+  const controls =
+    (smoothing ? `<label class="opt" title="Exponential moving average weight, as in TensorBoard">smoothing <input type="range" class="smooth" min="0" max="0.99" step="0.01" value="${w}"><span class="sval">${w.toFixed(2)}</span></label>` : "") +
+    (logToggle ? `<label class="opt"><input type="checkbox" class="log" ${log ? "checked" : ""}> log ${logToggle.axis}</label>` : "");
+  card.innerHTML = `<h3>${esc(title)}${controls ? `<span class="opts">${controls}</span>` : ""}</h3>
+    <div class="legend"></div><div class="chart" id="${id}"></div><div class="extra"></div>`;
+  parent.appendChild(card);
+  if (logToggle) card.querySelector("input.log").onchange = (e) => { state.logScale[id] = e.target.checked; render(); };
+  return { card, chart: card.querySelector(".chart"), legend: card.querySelector(".legend"), extra: card.querySelector(".extra"),
+    log, smooth: card.querySelector("input.smooth"), smoothLabel: card.querySelector(".sval") };
+}
+
+function withColors(key, list) {
+  return list.map((s, i) => ({ ...s, color: cssVar(SERIES_VARS[i % SERIES_VARS.length]), off: !!state.hidden[key + "/" + s.name] }));
+}
+
+function statsTable(series, fmt) {
+  const rows = series.map((s) => `<tr><td>${esc(s.name)}</td><td>${s.sorted.length}</td>${[0.5, 0.9, 0.99].map((q) => `<td>${fmt(quantile(s.sorted, q))}</td>`).join("")}<td>${fmt(s.sorted.length ? s.sorted.reduce((a, b) => a + b, 0) / s.sorted.length : null)}</td></tr>`).join("");
+  return `<table class="stats"><tr><th></th><th>n</th><th>p50</th><th>p90</th><th>p99</th><th>mean</th></tr>${rows}</table>`;
+}
+
+function cdfCard(parent, { id, title, series, logToggle, fmt = fmtSec, xLabel = "latency", xMax }) {
+  const c = addCard(parent, { id, title, logToggle });
+  const ss = withColors(id, series.map((s) => ({ name: s.name, ...cdfPoints(s.values) })));
+  legend(c.legend, ss, id);
+  lineChart(c.chart, ss, {
+    step: true, logX: c.log, xMax, yMin: 0, yMax: 1, xLabel, yLabel: "CDF",
+    xFmt: fmt, yFmt: (v) => fmtNum(v, 2),
+    tipFmt: (p) => `${fmt(p[0])} &middot; p${(p[1] * 100).toFixed(1)}`,
+  });
+  c.extra.innerHTML = statsTable(ss, fmt);
+}
+
+function renderRequest(el, sessions, turns) {
+  const ok = turns.filter((t) => t.status === "ok");
+  cdfCard(el, { id: "cdf-session", title: "session_e2e_latency", logToggle: { axis: "x", on: false },
+    series: [{ name: "session e2e", values: sessions.map((s) => s.e2e) }] });
+  cdfCard(el, { id: "cdf-turn", title: "turn_e2e_latency", logToggle: { axis: "x", on: false },
+    series: [{ name: "turn e2e", values: ok.map((t) => t.turn_e2e_latency) }] });
+  cdfCard(el, { id: "cdf-components", title: "turn latency breakdown", logToggle: { axis: "x", on: true },
+    series: LAT_COMPONENTS.map(([k, name]) => ({ name, values: ok.map((t) => t[k]) })) });
+  cdfCard(el, { id: "cdf-kvc-hit", title: "kvc_hit_ratio", fmt: fmtPct, xLabel: "KV cache hit ratio", xMax: 1,
+    series: [{ name: "kvc hit ratio", values: ok.map((t) => t.kvc_hit_ratio) }] });
+}
+
+// Common time origin for every vs.-time chart, so request and server charts line up.
+function runStartTime(d) {
+  let t0 = Infinity;
+  for (const m of Object.values(d.metrics)) if (m.t.length) t0 = Math.min(t0, m.t[0]);
+  for (const t of d.turns) if (t.t_send != null) t0 = Math.min(t0, t.t_send);
+  return t0;
+}
+
+// TensorBoard's smoothing: index-based EMA with debiasing, so the start is not pulled to 0.
+function emaSmooth(pts, w) {
+  let last = 0;
+  return pts.map((p, i) => {
+    last = last * w + (1 - w) * p[1];
+    return [p[0], last / (1 - Math.pow(w, i + 1)), p[2], p[1]];
+  });
+}
+
+function timeLineCard(parent, { id, title, series, logToggle, fmt = fmtSec, yLabel = "latency", yMax }) {
+  const c = addCard(parent, { id, title, logToggle, smoothing: true });
+  const ss = withColors(id, series);
+  legend(c.legend, ss, id);
+  const meta = (p) => `<span style="font-weight:400;color:var(--ink-3)">${esc(p[2])}</span>`;
+  // Redraws only this chart: a full render() would rebuild the slider mid-drag.
+  const draw = () => {
+    const w = state.smoothing[id] || 0;
+    const drawn = w > 0 ? ss.flatMap((s) => [{ ...s, faint: true }, { ...s, pts: emaSmooth(s.pts, w) }]) : ss;
+    lineChart(c.chart, drawn, {
+      logY: c.log, xMin: 0, yMax, xLabel: "run time", yLabel, xFmt: fmtClock, yFmt: fmt, sharedX: true,
+      tipFmt: (p) => w > 0 ? `${esc(fmt(p[1]))} <span style="font-weight:400">(raw ${esc(fmt(p[3]))})</span> ${meta(p)}` : `${esc(fmt(p[1]))} ${meta(p)}`,
+    });
+  };
+  c.smooth.oninput = (e) => {
+    state.smoothing[id] = +e.target.value;
+    c.smoothLabel.textContent = (+e.target.value).toFixed(2);
+    draw();
+  };
+  draw();
+}
+
+function renderRequestTime(el, sessions, turns, t0) {
+  if (!isFinite(t0) || !turns.length) { el.innerHTML = `<div class="empty">no finished turns in this run</div>`; return; }
+  const ok = turns.filter((t) => t.status === "ok" && t.t_send != null).sort((a, b) => a.t_send - b.t_send);
+  const turnPts = (key) => ok.map((t) => [t.t_send - t0, t[key], `replica ${t.replica_id} · turn ${t.turn_id}`]);
+  const sessPts = sessions.filter((s) => s.e2e != null).sort((a, b) => a.start - b.start)
+    .map((s) => [s.start - t0, s.e2e, `replica ${s.replica_id} · ${s.session_id} · ${s.ok} turns`]);
+  timeLineCard(el, { id: "time-session", title: "session_e2e_latency vs. session start", logToggle: { axis: "y", on: false },
+    series: [{ name: "session e2e", pts: sessPts }] });
+  timeLineCard(el, { id: "time-turn", title: "turn_e2e_latency vs. turn start", logToggle: { axis: "y", on: false },
+    series: [{ name: "turn e2e", pts: turnPts("turn_e2e_latency") }] });
+  timeLineCard(el, { id: "time-components", title: "turn latency breakdown vs. turn start", logToggle: { axis: "y", on: true },
+    series: LAT_COMPONENTS.map(([k, name]) => ({ name, pts: turnPts(k) })) });
+  timeLineCard(el, { id: "time-kvc-hit", title: "kvc_hit_ratio vs. turn start", fmt: fmtPct, yLabel: "KV cache hit ratio", yMax: 1,
+    series: [{ name: "kvc hit ratio", pts: turnPts("kvc_hit_ratio") }] });
+}
+
+function renderServer(el, d, t0) {
+  const eps = Object.keys(d.metrics).sort();
+  if (!eps.length || !eps.some((ep) => d.metrics[ep].t.length)) { el.innerHTML = `<div class="empty">no metrics.csv samples in this run</div>`; return; }
+  const charts = [
+    { id: "srv-queue", title: "num_queue_reqs", key: "num_queue_reqs", yLabel: "queued reqs", fmt: (v) => fmtNum(v, 0) },
+    { id: "srv-running", title: "num_running_reqs", key: "num_running_reqs", yLabel: "running reqs", fmt: (v) => fmtNum(v, 0) },
+    { id: "srv-kvc", title: "token_usage (KV cache)", key: "token_usage", yLabel: "KV cache usage", fmt: fmtPct, yMax: 1 },
+    { id: "srv-full-kv", title: "full_token_usage (full-attention KV)", key: "full_token_usage", yLabel: "full KV usage", fmt: fmtPct, yMax: 1 },
+    { id: "srv-mamba", title: "mamba_usage (Mamba state)", key: "mamba_usage", yLabel: "mamba usage", fmt: fmtPct, yMax: 1 },
+  ];
+  for (const ch of charts) {
+    const c = addCard(el, { id: ch.id, title: ch.title });
+    const ss = withColors(ch.id, eps.map((ep) => {
+      const m = d.metrics[ep];
+      const ys = m[ch.key] || [];
+      return { name: ep.replace(/^https?:\/\//, ""), pts: m.t.map((t, i) => [t - t0, ys[i]]).filter((p) => p[1] != null) };
+    }));
+    legend(c.legend, ss, ch.id);
+    lineChart(c.chart, ss, {
+      xLabel: "run time", yLabel: ch.yLabel, emptyText: `${ch.key} not recorded in this run`, xFmt: fmtClock, yFmt: ch.fmt, xMin: 0, yMin: 0, yMax: ch.yMax, sharedX: true,
+      tipFmt: (p) => esc(ch.fmt(p[1])),
+    });
+  }
+}
+
+// ---------- runs & loading ----------
+function renderRuns() {
+  const box = $("#runs");
+  let re = null;
+  try { re = new RegExp($("#filter").value, "i"); } catch (e) { re = null; }
+  box.innerHTML = "";
+  for (const r of state.runs) {
+    if (re && !re.test(r.name)) continue;
+    const div = document.createElement("div");
+    div.className = "run" + (r.name === state.selected ? " sel" : "");
+    const color = { finished: "var(--done)", running: "var(--header)", aborted: "var(--failed)" }[r.status];
+    const tag = r.status !== "finished" ? r.status : !r.has_loadgen ? "no loadgen" : "";
+    div.innerHTML = `<span class="dot" style="background:${color}"></span><span class="name" title="${esc(r.name)}">${esc(r.name)}</span><span class="tag">${tag}</span>`;
+    div.onclick = () => select(r.name);
+    box.appendChild(div);
+  }
+}
+
+// Reads the body as text first so an empty or truncated response reports its
+// HTTP status instead of a bare JSON SyntaxError.
+async function fetchJSON(url, { etag } = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  let res, text;
+  try {
+    res = await fetch(url, { cache: "no-store", headers: etag ? { "If-None-Match": etag } : {}, signal: ctrl.signal });
+    if (res.status === 304) return { notModified: true };
+    text = await res.text();
+  } catch (e) {
+    throw new Error(e.name === "AbortError" ? `${url}: timed out after ${FETCH_TIMEOUT_MS / 1000}s` : `${url}: network error (${e.message})`);
+  } finally {
+    clearTimeout(timer);
+  }
+  let body = null;
+  try { body = JSON.parse(text); } catch (e) { /* reported below */ }
+  if (!res.ok || body === null) {
+    const detail = body && body.error ? body.error : text ? `bad JSON (${text.length}B): ${text.slice(0, 80)}` : "empty body";
+    throw new Error(`${url}: HTTP ${res.status}, ${detail}`);
+  }
+  return { body, etag: res.headers.get("ETag") };
+}
+
+function turnRows(cols) {
+  const keys = Object.keys(cols), n = cols.replica_id.length, rows = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const o = {};
+    for (const k of keys) o[k] = cols[k][i];
+    rows[i] = o;
+  }
+  return rows;
+}
+
+function setStatus(err) {
+  const el = $("#status");
+  const now = new Date().toLocaleTimeString([], { hour12: false });
+  el.className = err ? "bad" : "";
+  el.textContent = err ? `reload failed ${now} · ${err.message}` : `updated ${now}`;
+  el.title = err ? err.message : "";
+}
+
+async function loadRuns() {
+  const { body } = await fetchJSON("api/runs");
+  state.runs = body.runs;
+  $("#root").textContent = body.root;
+  if (!state.selected) {
+    const fromHash = decodeURIComponent(location.hash.slice(1));
+    const pick = state.runs.find((r) => r.name === fromHash) || state.runs.find((r) => r.has_loadgen) || state.runs[0];
+    // reload() fetches the run right after this.
+    if (pick) showSelected(pick.name);
+  }
+  renderRuns();
+}
+
+async function loadRun() {
+  const name = state.selected;
+  if (!name) return;
+  const cached = state.cache[name];
+  const res = await fetchJSON("api/run?name=" + encodeURIComponent(name), { etag: cached && cached.etag });
+  if (!res.notModified) state.cache[name] = { etag: res.etag, data: { ...res.body, turns: turnRows(res.body.turns) } };
+  if (name !== state.selected || !state.cache[name]) return;
+  state.loadError = null;
+  if (state.data !== state.cache[name].data) {
+    state.data = state.cache[name].data;
+    render();
+  }
+}
+
+// On failure the page keeps the last good data and only the header shows the error.
+async function reload() {
+  const errors = [];
+  for (const step of [loadRuns, loadRun]) {
+    try { await step(); } catch (e) { errors.push(e); }
+  }
+  setStatus(errors[0] || null);
+  if (errors.length) {
+    console.warn("reload failed:", ...errors);
+    if (!state.data && state.selected) { state.loadError = errors.map((e) => e.message).join("; "); render(); }
+  }
+}
+
+let reloading = false;
+async function tick() {
+  if (reloading) return;
+  reloading = true;
+  try { await reload(); } finally { reloading = false; }
+}
+
+function showSelected(name) {
+  if (name !== state.selected) {
+    state.selected = name;
+    state.loadError = null;
+    state.data = state.cache[name] ? state.cache[name].data : null;
+    if (state.data) render();
+    else $("#main").innerHTML = `<div class="empty">loading ${esc(name)}...</div>`;
+  }
+  history.replaceState(null, "", "#" + encodeURIComponent(name));
+  renderRuns();
+}
+
+function select(name) {
+  showSelected(name);
+  loadRun().then(() => setStatus(null), (e) => {
+    setStatus(e);
+    if (!state.data && name === state.selected) { state.loadError = e.message; render(); }
+  });
+}
+
+$("#filter").oninput = renderRuns;
+$("#reload").onclick = tick;
+$("#theme").onclick = () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  document.documentElement.dataset.theme = cur === "dark" ? "light" : "dark";
+  try { localStorage.setItem("lgb-theme", document.documentElement.dataset.theme); } catch (e) {}
+  render();
+};
+try { const t = localStorage.getItem("lgb-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+const SIDEBAR_MIN_PX = 160;
+function setSidebarWidth(px) {
+  const w = Math.max(SIDEBAR_MIN_PX, Math.min(px, innerWidth * 0.6));
+  $("aside").style.width = w + "px";
+  return w;
+}
+try { const w = +localStorage.getItem("lgb-sidebar"); if (w) setSidebarWidth(w); } catch (e) {}
+$("#splitter").addEventListener("mousedown", (ev) => {
+  ev.preventDefault();
+  const startX = ev.clientX, startW = $("aside").getBoundingClientRect().width;
+  let w = startW;
+  $("#splitter").classList.add("drag");
+  document.body.classList.add("resizing");
+  const move = (e) => { w = setSidebarWidth(startW + e.clientX - startX); };
+  const up = () => {
+    removeEventListener("mousemove", move);
+    removeEventListener("mouseup", up);
+    $("#splitter").classList.remove("drag");
+    document.body.classList.remove("resizing");
+    try { localStorage.setItem("lgb-sidebar", String(Math.round(w))); } catch (e) {}
+    render();  // charts size themselves to their card width
+  };
+  addEventListener("mousemove", move);
+  addEventListener("mouseup", up);
+});
+$("#splitter").addEventListener("dblclick", () => {
+  $("aside").style.width = "";
+  try { localStorage.removeItem("lgb-sidebar"); } catch (e) {}
+  render();
+});
+let resizeTimer;
+addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); });
+setInterval(() => { if ($("#auto").checked) tick(); }, RELOAD_INTERVAL_MS);
+
+tick();
+</script>
+</body>
+</html>
