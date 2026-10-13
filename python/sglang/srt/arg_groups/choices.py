@@ -183,6 +183,8 @@ FP4_GEMM_RUNNER_BACKEND_CHOICES = [
 
 RADIX_EVICTION_POLICY_CHOICES = ["lru", "lfu", "slru", "priority", "tlru"]
 
+PREFIX_PIN_RELEASE_ORDER_CHOICES = ["latest_return", "oldest", "largest"]
+
 RL_ON_POLICY_TARGET_CHOICES = ["fsdp"]
 
 LINEAR_ATTN_KERNEL_BACKEND_CHOICES = [

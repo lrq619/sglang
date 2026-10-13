@@ -6,6 +6,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    Dict,
     List,
     Optional,
     Tuple,
@@ -33,6 +34,13 @@ class PoolStats:
     is_hybrid_swa: bool = False
     is_hybrid_ssm: bool = False
     is_hisparse: bool = False
+
+    # Prefix pins (--enable-prefix-pin): share of the full KV / mamba pool they
+    # hold, and cumulative refusals and force releases by reason.
+    pinned_token_usage: float = 0.0
+    pinned_mamba_usage: float = 0.0
+    pin_refused: Dict[str, int] = dataclasses.field(default_factory=dict)
+    pin_force_released: Dict[str, int] = dataclasses.field(default_factory=dict)
 
     # For hybrid-swa pools
     full_capacity: Optional[int] = None
@@ -132,6 +140,10 @@ class PoolStats:
             stats.swa_available_tokens = self.swa_available_size
             stats.swa_evictable_tokens = self.swa_evictable_size
             stats.swa_used_tokens = self.swa_num_used
+        stats.pinned_token_usage = self.pinned_token_usage
+        stats.pinned_mamba_usage = self.pinned_mamba_usage
+        stats.prefix_pin_refused = self.pin_refused
+        stats.prefix_pin_force_released = self.pin_force_released
         if self.is_hybrid_ssm:
             stats.mamba_usage = self.mamba_usage
             stats.mamba_available_tokens = self.mamba_available_size
@@ -214,6 +226,16 @@ class SchedulerPoolStatsObserver:
             pool_stats.mamba_usage = mamba_stats.mamba_usage
             pool_stats.mamba_available_size = mamba_stats.mamba_available_size
             pool_stats.mamba_evictable_size = mamba_stats.mamba_evictable_size
+
+        pins = self.tree_cache.prefix_pins
+        if pins is not None:
+            # Same capacity the pin budget is a fraction of.
+            pool_stats.pinned_token_usage = (
+                pins.pinned_kv_tokens / self.max_total_num_tokens
+            )
+            pool_stats.pinned_mamba_usage = pins.pinned_mamba_usage
+            pool_stats.pin_refused = dict(pins.refused)
+            pool_stats.pin_force_released = dict(pins.force_released)
 
         return pool_stats
 

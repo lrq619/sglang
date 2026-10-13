@@ -147,6 +147,8 @@ from sglang.srt.managers.io_struct import (
     FreezeGCReq,
     GetInternalStateReq,
     GetInternalStateReqOutput,
+    GetPrefixPinsReqInput,
+    GetPrefixPinsReqOutput,
     GetWeightsByNameReqInput,
     HealthCheckOutput,
     InitWeightsSendGroupForRemoteInstanceReqInput,
@@ -162,6 +164,8 @@ from sglang.srt.managers.io_struct import (
     OpenSessionReqInput,
     PauseGenerationReqInput,
     PdRoleSwitchReqInput,
+    PinPrefixReqInput,
+    PinPrefixReqOutput,
     ProfileReq,
     ReleaseMemoryOccupationReqInput,
     RemoveExternalCorpusReqInput,
@@ -182,6 +186,8 @@ from sglang.srt.managers.io_struct import (
     TokenizedGenerateReqInput,
     UnloadLoRAAdapterReqInput,
     UnloadLoRAAdapterReqOutput,
+    UnpinPrefixReqInput,
+    UnpinPrefixReqOutput,
     UpdateWeightFromDiskReqInput,
     UpdateWeightsFromDistributedReqInput,
     UpdateWeightsFromIPCReqInput,
@@ -294,6 +300,12 @@ from sglang.srt.mem_cache.common import (
     discard_kv_cache_backup,
     maybe_cache_unfinished_req,
     release_kv_cache,
+)
+from sglang.srt.mem_cache.prefix_pin import (
+    MAMBA_STATES_PER_ADMISSION,
+    ForceReleaseReason,
+    PinStatus,
+    PrefixPinRegistry,
 )
 from sglang.srt.model_executor.forward_batch_info import PPProxyTensors
 from sglang.srt.model_executor.runner_utils.pool import prewarm_graph_pool_borrow
@@ -445,6 +457,8 @@ class Scheduler(
 
     # Logical-to-physical KV capacity ratio; defaults to 1 before pool init.
     kv_shard_widening: int = 1
+    # Set by maybe_init_prefix_pin_registry under --enable-prefix-pin.
+    prefix_pins: Optional[PrefixPinRegistry] = None
 
     # Class-level default so on_idle's stall gate works even if a fork
     # overrides init_load_publisher (which would otherwise not set it).
@@ -616,6 +630,7 @@ class Scheduler(
             c.attach_radix_cache(self.tree_cache)
 
         self.init_hisparse_coordinator()
+        self.maybe_init_prefix_pin_registry()
 
         if (
             get_disagg().disaggregation_mode == "decode"
@@ -1328,6 +1343,40 @@ class Scheduler(
             self.chunked_prefill_size is not None and get_schedule().enable_mixed_chunk
         )
 
+    def maybe_init_prefix_pin_registry(self) -> None:
+        """Externally controlled prefix pins (--enable-prefix-pin)."""
+        mem = get_memory()
+        if not mem.enable_prefix_pin:
+            return
+        from sglang.srt.mem_cache.unified_radix_cache import UnifiedRadixCache
+
+        if (
+            not isinstance(self.tree_cache, UnifiedRadixCache)
+            or self.tree_cache.disable
+        ):
+            raise ValueError("--enable-prefix-pin requires the unified radix cache")
+        has_mamba = self.tree_cache.supports_mamba()
+        pool = self.req_to_token_pool
+        self.prefix_pins = PrefixPinRegistry(
+            tree_cache=self.tree_cache,
+            kv_capacity=self.max_total_num_tokens,
+            mamba_capacity=pool.mamba_pool.size if has_mamba else None,
+            mamba_free_states=(
+                (
+                    lambda: (
+                        pool.mamba_allocator.available_size()
+                        + self.tree_cache.mamba_evictable_size()
+                    )
+                )
+                if has_mamba
+                else None
+            ),
+            max_kv_fraction=mem.prefix_pin_max_kv_fraction,
+            max_mamba_fraction=mem.prefix_pin_max_mamba_fraction,
+            release_order=mem.prefix_pin_release_order,
+        )
+        self.tree_cache.prefix_pins = self.prefix_pins
+
     def maybe_init_dynamic_chunk_sizer(self) -> None:
         """Profile a PP prefill latency model that sizes chunks per stage."""
         self.dynamic_chunk_sizer: Optional[DynamicChunkSizer] = None
@@ -1723,6 +1772,9 @@ class Scheduler(
                 (BatchTokenizedGenerateReqInput, self.handle_batch_generate_request),
                 (BatchTokenizedEmbeddingReqInput, self.handle_batch_embedding_request),
                 (FlushCacheReqInput, self.flush_wrapper.handle),
+                (PinPrefixReqInput, self.pin_prefix),
+                (UnpinPrefixReqInput, self.unpin_prefix),
+                (GetPrefixPinsReqInput, self.get_prefix_pins),
                 (ClearHiCacheReqInput, self.clear_hicache_storage_wrapped),
                 (AttachHiCacheStorageReqInput, self.attach_hicache_storage_wrapped),
                 (DetachHiCacheStorageReqInput, self.detach_hicache_storage_wrapped),
@@ -2810,6 +2862,9 @@ class Scheduler(
                     else None
                 ),
                 routing_key=recv_req.routing_key,
+                pin_on_finish=recv_req.pin_on_finish,
+                pin_expected_return_s=recv_req.pin_expected_return_s,
+                release_pin_of=recv_req.release_pin_of,
                 extra_key=recv_req.extra_key,
                 cache_salt=recv_req.cache_salt,
                 http_worker_ipc=recv_req.http_worker_ipc,
@@ -3812,10 +3867,24 @@ class Scheduler(
                 self.prefill_delayer, token_usage=max_pool_usage
             )
 
+        if self.prefix_pins is not None and self.waiting_queue:
+            self.prefix_pins.ensure_mamba_headroom(MAMBA_STATES_PER_ADMISSION)
+
         ret, running_batch = self._get_new_batch_prefill_raw(
             prefill_delayer_single_pass=prefill_delayer_single_pass,
             running_batch=running_batch,
         )
+        # Nothing running will ever free memory for the queue head, so only
+        # dropping pins can: release them one by one until something is admitted.
+        while ret is None and self._prefill_blocked_only_by_pins(running_batch):
+            self.prefix_pins.release_one(reason=ForceReleaseReason.ADMISSION)
+            running_batch.batch_is_full = False
+            ret, running_batch = self._get_new_batch_prefill_raw(
+                prefill_delayer_single_pass=prefill_delayer_single_pass,
+                running_batch=running_batch,
+            )
+        if ret is not None and self.prefix_pins is not None:
+            self.prefix_pins.handover(ret.reqs)
 
         if self.prefill_delayer:
             observed_prefill_bs = prefill_delayer_single_pass.finalize(
@@ -3827,6 +3896,15 @@ class Scheduler(
                 )
 
         return NextBatchPlan(batch_to_run=ret, running_batch=running_batch)
+
+    def _prefill_blocked_only_by_pins(self, running_batch: ScheduleBatch) -> bool:
+        return (
+            self.prefix_pins is not None
+            and self.prefix_pins.has_pins()
+            and len(self.waiting_queue) > 0
+            and self.chunked_req is None
+            and running_batch.is_empty()
+        )
 
     def _get_new_batch_prefill_raw(
         self,
@@ -4196,6 +4274,12 @@ class Scheduler(
         if batch.is_empty():
             batch.batch_is_full = False
             return batch
+
+        # Pins are cheaper to drop than running requests are to retract.
+        if self.prefix_pins is not None:
+            self.prefix_pins.release_until(
+                batch.check_decode_mem, reason=ForceReleaseReason.DECODE
+            )
 
         # Check if decode out of memory
         if (kv_full_retract_flag := not batch.check_decode_mem()) or (
@@ -4902,6 +4986,43 @@ class Scheduler(
             )
         return self.external_corpus_manager.list(recv_req)
 
+    def pin_prefix(self, recv_req: PinPrefixReqInput) -> PinPrefixReqOutput:
+        if self.prefix_pins is None:
+            return PinPrefixReqOutput(
+                success=False, status="disabled", message="--enable-prefix-pin is off"
+            )
+        result = self.prefix_pins.request_pin(
+            rid=recv_req.target_rid, expected_return_s=recv_req.expected_return_s
+        )
+        return PinPrefixReqOutput(
+            success=result.status in (PinStatus.PENDING, PinStatus.ALREADY_PINNED),
+            status=result.status,
+            num_tokens=result.num_tokens,
+        )
+
+    def unpin_prefix(self, recv_req: UnpinPrefixReqInput) -> UnpinPrefixReqOutput:
+        if self.prefix_pins is None:
+            return UnpinPrefixReqOutput(
+                success=False, status="disabled", message="--enable-prefix-pin is off"
+            )
+        return UnpinPrefixReqOutput(
+            success=True, status=self.prefix_pins.unpin(recv_req.target_rid)
+        )
+
+    def get_prefix_pins(
+        self, recv_req: GetPrefixPinsReqInput
+    ) -> GetPrefixPinsReqOutput:
+        if self.prefix_pins is None:
+            return GetPrefixPinsReqOutput(
+                success=False, message="--enable-prefix-pin is off"
+            )
+        return GetPrefixPinsReqOutput(
+            success=True,
+            pins=self.prefix_pins.snapshot(),
+            pinned_kv_tokens=self.prefix_pins.pinned_kv_tokens,
+            num_force_released=self.prefix_pins.num_force_released,
+        )
+
     def clear_hicache_storage_wrapped(self, recv_req: ClearHiCacheReqInput):
         if self.enable_hierarchical_cache or self.enable_lmcache:
             self.tree_cache.clear_storage_backend()
@@ -5189,6 +5310,9 @@ class Scheduler(
         if self.is_fully_idle(ignore_waiting=self._engine_paused):
             self.cur_batch_for_debug = None
             self.last_batch = None
+            if self.prefix_pins is not None:
+                # The reset invalidates every pinned node id.
+                self.prefix_pins.clear()
             self.tree_cache.reset()
             self.req_to_token_pool.clear()
             self.token_to_kv_pool_allocator.clear()

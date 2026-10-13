@@ -1038,6 +1038,9 @@ class Req(ReqDllmMixin):
         metrics_collector: Optional[SchedulerMetricsCollector] = None,
         extra_key: Optional[str] = None,
         routing_key: Optional[str] = None,
+        pin_on_finish: bool = False,
+        pin_expected_return_s: Optional[float] = None,
+        release_pin_of: Optional[str] = None,
         dimensions: Optional[int] = None,
         http_worker_ipc: Optional[str] = None,
         time_stats: Optional[
@@ -1128,6 +1131,11 @@ class Req(ReqDllmMixin):
         self.cache_salt = cache_salt or None
         self.lora_id = lora_id
         self.routing_key = routing_key
+        # Prefix pins (--enable-prefix-pin): pin this request's cached prefix when
+        # it finishes; drop another request's pin once this one is admitted.
+        self.pin_on_finish = pin_on_finish
+        self.pin_expected_return_s = pin_expected_return_s
+        self.release_pin_of = release_pin_of
 
         # Lazy extra buffer: skip radix cache insert when prealloc failed at
         # boundary — the forward overwrites the only slot, corrupting the state.

@@ -141,6 +141,7 @@ from sglang.srt.managers.io_struct import (
     ParseFunctionCallReq,
     PauseGenerationReqInput,
     PdRoleSwitchReqInput,
+    PinPrefixReqInput,
     ProfileReq,
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
@@ -149,6 +150,7 @@ from sglang.srt.managers.io_struct import (
     SetInternalStateReq,
     SlowDownReqInput,
     UnloadLoRAAdapterReqInput,
+    UnpinPrefixReqInput,
     UpdateWeightFromDiskReqInput,
     UpdateWeightsFromDistributedReqInput,
     UpdateWeightsFromIPCReqInput,
@@ -982,6 +984,49 @@ async def classify_request(obj: EmbeddingReqInput, request: Request):
         return ret
     except ValueError as e:
         return _create_error_response(e)
+
+
+# example usage (--enable-prefix-pin):
+# curl -s -X POST http://127.0.0.1:30000/pin_prefix \
+#   -H 'Content-Type: application/json' -d '{"target_rid": "r1", "expected_return_s": 3.5}'
+@app.api_route("/pin_prefix", methods=["POST"])
+@auth_level(AuthLevel.ADMIN_OPTIONAL)
+async def pin_prefix(obj: Annotated[PinPrefixReqInput, Body()]):
+    """Pin a request's cached prefix when it finishes, until /unpin_prefix."""
+    ret = await _global_state.tokenizer_manager.pin_prefix(
+        target_rid=obj.target_rid, expected_return_s=obj.expected_return_s
+    )
+    return ORJSONResponse(
+        {"status": ret.status, "num_tokens": ret.num_tokens, "message": ret.message},
+        status_code=200 if ret.success else HTTPStatus.BAD_REQUEST,
+    )
+
+
+@app.api_route("/unpin_prefix", methods=["POST"])
+@auth_level(AuthLevel.ADMIN_OPTIONAL)
+async def unpin_prefix(obj: Annotated[UnpinPrefixReqInput, Body()]):
+    """Release a prefix pin; idempotent."""
+    ret = await _global_state.tokenizer_manager.unpin_prefix(target_rid=obj.target_rid)
+    return ORJSONResponse(
+        {"status": ret.status, "message": ret.message},
+        status_code=200 if ret.success else HTTPStatus.BAD_REQUEST,
+    )
+
+
+@app.get("/prefix_pins")
+@auth_level(AuthLevel.ADMIN_OPTIONAL)
+async def prefix_pins():
+    """List current prefix pins."""
+    ret = await _global_state.tokenizer_manager.get_prefix_pins()
+    return ORJSONResponse(
+        {
+            "pins": ret.pins,
+            "pinned_kv_tokens": ret.pinned_kv_tokens,
+            "num_force_released": ret.num_force_released,
+            "message": ret.message,
+        },
+        status_code=200 if ret.success else HTTPStatus.BAD_REQUEST,
+    )
 
 
 @app.api_route("/flush_cache", methods=["GET", "POST"])

@@ -597,17 +597,27 @@ function renderServer(el, d, t0) {
     { id: "srv-kvc", title: "token_usage (KV cache)", key: "token_usage", yLabel: "KV cache usage", fmt: fmtPct, yMax: 1 },
     { id: "srv-full-kv", title: "full_token_usage (full-attention KV)", key: "full_token_usage", yLabel: "full KV usage", fmt: fmtPct, yMax: 1 },
     { id: "srv-mamba", title: "mamba_usage (Mamba state)", key: "mamba_usage", yLabel: "mamba usage", fmt: fmtPct, yMax: 1 },
+    { id: "srv-pinned", title: "pinned_token_usage (prefix pins)", key: "pinned_token_usage", yLabel: "pinned KV share", fmt: fmtPct },
+    { id: "srv-pinned-mamba", title: "pinned_mamba_usage (prefix pins)", key: "pinned_mamba_usage", yLabel: "pinned mamba share", fmt: fmtPct },
+    { id: "srv-pin-refused", title: "prefix pins refused (cumulative, by reason)", yLabel: "pins refused", fmt: (v) => fmtNum(v, 0),
+      keys: [["pin_refused_over_budget", "over_budget"], ["pin_refused_nothing_cached", "nothing_cached"], ["pin_refused_already_finished", "already_finished"]] },
+    { id: "srv-pin-force", title: "prefix pins force-released (cumulative, by reason)", yLabel: "pins force-released", fmt: (v) => fmtNum(v, 0),
+      keys: [["pin_force_released_admission", "admission"], ["pin_force_released_decode", "decode"], ["pin_force_released_mamba_headroom", "mamba_headroom"]] },
+    { id: "srv-retracted", title: "retracted requests (cumulative)", key: "num_retracted_requests_total", yLabel: "retracted reqs", fmt: (v) => fmtNum(v, 0) },
   ];
   for (const ch of charts) {
     const c = addCard(el, { id: ch.id, title: ch.title });
-    const ss = withColors(ch.id, eps.map((ep) => {
+    // A chart plots one metric per endpoint, or with `keys` one line per endpoint and key.
+    const keys = ch.keys || [[ch.key, null]];
+    const ss = withColors(ch.id, eps.flatMap((ep) => keys.map(([key, label]) => {
       const m = d.metrics[ep];
-      const ys = m[ch.key] || [];
-      return { name: ep.replace(/^https?:\/\//, ""), pts: m.t.map((t, i) => [t - t0, ys[i]]).filter((p) => p[1] != null) };
-    }));
+      const ys = m[key] || [];
+      const name = ep.replace(/^https?:\/\//, "") + (label ? ` ${label}` : "");
+      return { name, pts: m.t.map((t, i) => [t - t0, ys[i]]).filter((p) => p[1] != null) };
+    })));
     legend(c.legend, ss, ch.id);
     lineChart(c.chart, ss, {
-      xLabel: "run time", yLabel: ch.yLabel, emptyText: `${ch.key} not recorded in this run`, xFmt: fmtClock, yFmt: ch.fmt, xMin: 0, yMin: 0, yMax: ch.yMax, sharedX: true,
+      xLabel: "run time", yLabel: ch.yLabel, emptyText: `${ch.title} not recorded in this run`, xFmt: fmtClock, yFmt: ch.fmt, xMin: 0, yMin: 0, yMax: ch.yMax, sharedX: true,
       tipFmt: (p) => esc(ch.fmt(p[1])),
     });
   }

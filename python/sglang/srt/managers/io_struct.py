@@ -302,6 +302,12 @@ class GenerateReqInput:
     disagg_prefill_dp_rank: Optional[int] = None
     # Routing key for routing-key schedule policy
     routing_key: Optional[str] = None
+    # Prefix pins (--enable-prefix-pin): pin this request's cached prefix when it
+    # finishes, optionally saying when the next turn is expected (seconds);
+    # release_pin_of drops that rid's pin once this request is admitted.
+    pin_on_finish: bool = False
+    pin_expected_return_s: Optional[float] = None
+    release_pin_of: Optional[Union[str, List[Optional[str]]]] = None
     # Conversation id used for tracking requests
     conversation_id: Optional[str] = None
     # Internal IPC endpoint of the HTTP/tokenizer worker that owns this request.
@@ -1008,6 +1014,13 @@ class GenerateReqInput:
             ),
             routed_dp_rank=self.routed_dp_rank,
             disagg_prefill_dp_rank=self.disagg_prefill_dp_rank,
+            pin_on_finish=self.pin_on_finish,
+            pin_expected_return_s=self.pin_expected_return_s,
+            release_pin_of=(
+                self.release_pin_of[i]
+                if isinstance(self.release_pin_of, list)
+                else self.release_pin_of
+            ),
             conversation_id=self.conversation_id,
             http_worker_ipc=self.http_worker_ipc,
             require_reasoning=self.require_reasoning,
@@ -1103,6 +1116,10 @@ class TokenizedGenerateReqInput(BaseReq, kw_only=True):
 
     # Routing key for routing-key schedule policy
     routing_key: Optional[str] = None
+    # Prefix pins, see GenerateReqInput
+    pin_on_finish: bool = False
+    pin_expected_return_s: Optional[float] = None
+    release_pin_of: Optional[str] = None
     # Require reasoning for the request (hybrid reasoning model only)
     require_reasoning: bool = False
 
@@ -1753,6 +1770,41 @@ class ClearHiCacheReqOutput(BaseReq, kw_only=True):
 
 class FlushCacheReqInput(BaseReq, kw_only=True):
     timeout_s: Optional[float] = None
+
+
+class PinPrefixReqInput(BaseReq, kw_only=True):
+    # BaseReq.rid is this control message's own id; the request to pin is target_rid.
+    target_rid: str
+    expected_return_s: Optional[float] = None
+
+
+class PinPrefixReqOutput(BaseReq, kw_only=True):
+    success: bool
+    status: str
+    num_tokens: int = 0
+    message: str = ""
+
+
+class UnpinPrefixReqInput(BaseReq, kw_only=True):
+    target_rid: str
+
+
+class UnpinPrefixReqOutput(BaseReq, kw_only=True):
+    success: bool
+    status: str
+    message: str = ""
+
+
+class GetPrefixPinsReqInput(BaseReq, kw_only=True):
+    pass
+
+
+class GetPrefixPinsReqOutput(BaseReq, kw_only=True):
+    success: bool
+    pins: List[Dict[str, Any]] = []
+    pinned_kv_tokens: int = 0
+    num_force_released: int = 0
+    message: str = ""
 
 
 class FlushCacheReqOutput(BaseReq, kw_only=True):

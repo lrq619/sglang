@@ -43,6 +43,15 @@ GAUGE_COLUMNS = [
     "token_usage",
     "full_token_usage",
     "mamba_usage",
+    "pinned_token_usage",
+    "pinned_mamba_usage",
+    "num_retracted_requests_total",
+    "pin_refused_over_budget",
+    "pin_refused_nothing_cached",
+    "pin_refused_already_finished",
+    "pin_force_released_admission",
+    "pin_force_released_decode",
+    "pin_force_released_mamba_headroom",
 ]
 RUN_FILES = ["run_info.txt", "arrivals.jsonl", "loadgen.csv", "metrics.csv"]
 # A run without an "end" line whose files are all older than this was killed.

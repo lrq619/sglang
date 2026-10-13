@@ -28,24 +28,49 @@ GAUGES = {
     "token_usage": "sglang:token_usage",
     "full_token_usage": "sglang:full_token_usage",
     "mamba_usage": "sglang:mamba_usage",
+    # Share of the KV pool held by prefix pins (--enable-prefix-pin), else absent.
+    "pinned_token_usage": "sglang:pinned_token_usage",
     # Free slots per pool; the first time either hits ~0 marks the onset of
     # memory pressure (eviction or blocking), identical across cache policies.
     "kv_available_tokens": "sglang:kv_available_tokens",
     "mamba_available_tokens": "sglang:mamba_available_tokens",
+    "pinned_mamba_usage": "sglang:pinned_mamba_usage",
+    # Cumulative counters; a (metric, reason) pair reads one label value.
+    "num_retracted_requests_total": "sglang:num_retracted_requests_total",
+    "pin_refused_over_budget": ("sglang:prefix_pin_refused_total", "over_budget"),
+    "pin_refused_nothing_cached": ("sglang:prefix_pin_refused_total", "nothing_cached"),
+    "pin_refused_already_finished": (
+        "sglang:prefix_pin_refused_total",
+        "already_finished",
+    ),
+    "pin_force_released_admission": (
+        "sglang:prefix_pin_force_released_total",
+        "admission",
+    ),
+    "pin_force_released_decode": ("sglang:prefix_pin_force_released_total", "decode"),
+    "pin_force_released_mamba_headroom": (
+        "sglang:prefix_pin_force_released_total",
+        "mamba_headroom",
+    ),
 }
 CSV_COLUMNS = ["t", "endpoint", *GAUGES, "error"]
 
 
 def _parse_gauges(text: str) -> dict:
-    """Pick GAUGES out of Prometheus text; a gauge with several label sets is summed."""
-    by_metric = {metric: name for name, metric in GAUGES.items()}
+    """Pick GAUGES out of Prometheus text. A plain metric sums all its label
+    sets; a (metric, reason) entry sums only samples labelled reason="<reason>"."""
+    wanted = {}
+    for name, spec in GAUGES.items():
+        metric, reason = spec if isinstance(spec, tuple) else (spec, None)
+        wanted.setdefault(metric, []).append((name, reason))
     values = {}
     for line in text.splitlines():
         if not line or line.startswith("#"):
             continue
         metric = line.split("{", 1)[0].split(" ", 1)[0]
-        name = by_metric.get(metric)
-        if name is not None:
+        for name, reason in wanted.get(metric, ()):
+            if reason is not None and f'reason="{reason}"' not in line:
+                continue
             values[name] = values.get(name, 0.0) + float(line.rsplit(" ", 1)[1])
     return values
 

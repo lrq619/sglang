@@ -94,6 +94,12 @@ class SchedulerStats:
     full_token_usage: float = 0.0
     swa_token_usage: float = 0.0
     mamba_usage: float = 0.0
+    # Prefix pins (--enable-prefix-pin): full KV / mamba pool share they hold,
+    # and cumulative refusals and force releases by reason.
+    pinned_token_usage: float = 0.0
+    pinned_mamba_usage: float = 0.0
+    prefix_pin_refused: Dict[str, int] = field(default_factory=dict)
+    prefix_pin_force_released: Dict[str, int] = field(default_factory=dict)
 
     # Absolute token counts for the full-attention KV cache pool.
     # Invariant: kv_available_tokens + kv_evictable_tokens + kv_used_tokens <= max_total_num_tokens
@@ -342,6 +348,35 @@ class SchedulerMetricsCollector(_StatLoggerDIMixin):
             labelnames=labels.keys(),
             multiprocess_mode="mostrecent",
         )
+        self.pinned_token_usage = Gauge(
+            name="sglang:pinned_token_usage",
+            documentation=(
+                "Share of the full KV pool held by prefix pins; a token on the "
+                "path of several pins counts once per pin."
+            ),
+            labelnames=labels.keys(),
+            multiprocess_mode="mostrecent",
+        )
+        self.pinned_mamba_usage = Gauge(
+            name="sglang:pinned_mamba_usage",
+            documentation="Share of the mamba state pool held by prefix pins.",
+            labelnames=labels.keys(),
+            multiprocess_mode="mostrecent",
+        )
+        self.prefix_pin_refused_total = Counter(
+            name="sglang:prefix_pin_refused_total",
+            documentation="Prefix pin requests turned down, by reason.",
+            labelnames=list(labels.keys()) + ["reason"],
+        )
+        self.prefix_pin_force_released_total = Counter(
+            name="sglang:prefix_pin_force_released_total",
+            documentation=(
+                "Prefix pins the scheduler dropped to make progress, by reason."
+            ),
+            labelnames=list(labels.keys()) + ["reason"],
+        )
+        # Counts already exported per (counter name, reason); stats carry totals.
+        self._exported_pin_counts: Dict[tuple, int] = {}
 
         # =================================================================
         # Absolute token counts
@@ -1261,6 +1296,19 @@ class SchedulerMetricsCollector(_StatLoggerDIMixin):
             actual_execution=str(actual_execution).lower(),
         ).inc(1)
 
+    def _log_pin_counts(
+        self, counter: Any, totals: Dict[str, int], *, name: str
+    ) -> None:
+        """Advance the by-reason counter ``name`` to the cumulative ``totals``."""
+        for reason, total in totals.items():
+            key = (name, reason)
+            # Touching the child exports a reason at 0 before its first event.
+            child = counter.labels(**self.labels, reason=reason)
+            delta = total - self._exported_pin_counts.get(key, 0)
+            if delta > 0:
+                child.inc(delta)
+                self._exported_pin_counts[key] = total
+
     def increment_retracted_reqs(
         self,
         num_retracted_reqs: int,
@@ -1390,6 +1438,16 @@ class SchedulerMetricsCollector(_StatLoggerDIMixin):
         self._log_gauge(self.full_token_usage, stats.full_token_usage)
         self._log_gauge(self.swa_token_usage, stats.swa_token_usage)
         self._log_gauge(self.mamba_usage, stats.mamba_usage)
+        self._log_gauge(self.pinned_token_usage, stats.pinned_token_usage)
+        self._log_gauge(self.pinned_mamba_usage, stats.pinned_mamba_usage)
+        self._log_pin_counts(
+            self.prefix_pin_refused_total, stats.prefix_pin_refused, name="refused"
+        )
+        self._log_pin_counts(
+            self.prefix_pin_force_released_total,
+            stats.prefix_pin_force_released,
+            name="force_released",
+        )
 
         # Absolute token counts
         self._log_gauge(self.num_used_tokens, stats.num_used_tokens)

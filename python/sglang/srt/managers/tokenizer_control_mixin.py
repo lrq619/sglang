@@ -39,6 +39,8 @@ from sglang.srt.managers.io_struct import (
     FlushCacheReqOutput,
     GetInternalStateReq,
     GetInternalStateReqOutput,
+    GetPrefixPinsReqInput,
+    GetPrefixPinsReqOutput,
     GetWeightsByNameReqInput,
     GetWeightsByNameReqOutput,
     InitWeightsSendGroupForRemoteInstanceReqInput,
@@ -55,6 +57,8 @@ from sglang.srt.managers.io_struct import (
     OpenSessionReqInput,
     PdRoleSwitchReqInput,
     PdRoleSwitchReqOutput,
+    PinPrefixReqInput,
+    PinPrefixReqOutput,
     ProfileReq,
     ProfileReqOutput,
     ProfileReqType,
@@ -73,6 +77,8 @@ from sglang.srt.managers.io_struct import (
     SlowDownReqOutput,
     UnloadLoRAAdapterReqInput,
     UnloadLoRAAdapterReqOutput,
+    UnpinPrefixReqInput,
+    UnpinPrefixReqOutput,
     UpdateWeightsFromDistributedReqInput,
     UpdateWeightsFromDistributedReqOutput,
     UpdateWeightsFromIPCReqInput,
@@ -125,6 +131,9 @@ _COMMUNICATOR_SPECS = [
     ("slow_down", SlowDownReqOutput),
     ("pd_role_switch", PdRoleSwitchReqOutput),
     ("flush_cache", FlushCacheReqOutput),
+    ("pin_prefix", PinPrefixReqOutput),
+    ("unpin_prefix", UnpinPrefixReqOutput),
+    ("get_prefix_pins", GetPrefixPinsReqOutput),
     ("add_external_corpus", AddExternalCorpusReqOutput),
     ("remove_external_corpus", RemoveExternalCorpusReqOutput),
     ("list_external_corpora", ListExternalCorporaReqOutput),
@@ -171,6 +180,27 @@ def _lora_load_needs_cleanup(results: List[LoRAUpdateOutput], lora_name: str) ->
         result.success or lora_name in (result.loaded_adapters or {})
         for result in results
     )
+
+
+# A rid lives on one DP rank; the others answer as if they never saw it. Pick the
+# most informative reply: earlier in the list wins.
+_PIN_STATUS_PRECEDENCE = [
+    "disabled",
+    "pinned",
+    "already_pinned",
+    "unpinned",
+    "force_released",
+    "over_budget",
+    "nothing_cached",
+    "already_finished",
+    "pending",
+    "not_pinned",
+]
+
+
+def _merge_pin_replies(results: list):
+    rank = {status: i for i, status in enumerate(_PIN_STATUS_PRECEDENCE)}
+    return min(results, key=lambda r: rank.get(r.status, len(rank)))
 
 
 class TokenizerControlMixin:
@@ -328,6 +358,40 @@ class TokenizerControlMixin:
         if result.success and self.mm_processor is not None:
             self.mm_processor.clear_preprocess_cache()
         return result
+
+    async def pin_prefix(
+        self: TokenizerManager,
+        target_rid: str,
+        expected_return_s: Optional[float] = None,
+    ) -> PinPrefixReqOutput:
+        self.auto_create_handle_loop()
+        results = await self.pin_prefix_communicator(
+            PinPrefixReqInput(
+                target_rid=target_rid, expected_return_s=expected_return_s
+            )
+        )
+        return _merge_pin_replies(results)
+
+    async def unpin_prefix(
+        self: TokenizerManager, target_rid: str
+    ) -> UnpinPrefixReqOutput:
+        self.auto_create_handle_loop()
+        results = await self.unpin_prefix_communicator(
+            UnpinPrefixReqInput(target_rid=target_rid)
+        )
+        return _merge_pin_replies(results)
+
+    async def get_prefix_pins(self: TokenizerManager) -> GetPrefixPinsReqOutput:
+        self.auto_create_handle_loop()
+        results = await self.get_prefix_pins_communicator(GetPrefixPinsReqInput())
+        success, message = FanOutCommunicator.merge_results(results)
+        return GetPrefixPinsReqOutput(
+            success=success,
+            pins=[p for r in results for p in r.pins],
+            pinned_kv_tokens=sum(r.pinned_kv_tokens for r in results),
+            num_force_released=sum(r.num_force_released for r in results),
+            message=message,
+        )
 
     async def clear_hicache_storage(self: TokenizerManager) -> ClearHiCacheReqOutput:
         """Clear the hierarchical cache storage."""

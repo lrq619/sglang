@@ -18,6 +18,7 @@ from sglang.srt.mem_cache.allocator.page_interleave import (
 )
 from sglang.srt.mem_cache.base_prefix_cache import (
     BasePrefixCache,
+    CachedPrefix,
     CacheRequestHandle,
     DecLockRefParams,
     DecLockRefResult,
@@ -1003,11 +1004,11 @@ class UnifiedRadixCache(BasePrefixCache):
             comp.cleanup_after_caching_req(req, is_finished=True)
 
     @rank_consensus(same_params=["req.rid", "up_to"])
-    def insert_req(self, req: Req, *, up_to: int, **kwargs) -> None:
+    def insert_req(self, req: Req, *, up_to: int, **kwargs) -> Optional[CachedPrefix]:
         if self.disable:
             for comp in self._components_tuple:
                 comp.cleanup_after_caching_req(req, is_finished=True)
-            return
+            return None
 
         token_ids = (req.origin_input_ids + req.output_ids)[:up_to]
         kv_indices = self.req_to_token_pool.req_to_token[req.kv.req_pool_idx, :up_to]
@@ -1116,6 +1117,16 @@ class UnifiedRadixCache(BasePrefixCache):
                 self.session_refs.register_session_ref(
                     req, leaf=result.last_device_node
                 )
+
+        if (
+            result is None
+            or result.rotation_tail_declined
+            or result.last_device_node is None
+        ):
+            return None
+        return CachedPrefix(
+            node_id=result.last_device_node, num_tokens=page_aligned_len
+        )
 
     @rank_consensus(same_params=["req.rid", "chunked"])
     def advance_unpublished_req(self, req: Req, chunked: bool = False) -> None:
@@ -3699,6 +3710,9 @@ class UnifiedRadixCache(BasePrefixCache):
         # all nodes are unlocked during idle, which streaming sessions break
         # by design (they hold a first-turn lock across turns).
         if self.session.any_holding_kv():
+            return
+        # Prefix pins hold tree locks across idle periods by design, too.
+        if self.prefix_pins is not None and self.prefix_pins.has_pins():
             return
 
         # Pass ongoing ops as lightweight (id, node_id) pairs so the tree core

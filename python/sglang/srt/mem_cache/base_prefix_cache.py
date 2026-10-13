@@ -16,6 +16,7 @@ from typing import (
     runtime_checkable,
 )
 
+import msgspec
 import torch
 
 from sglang.srt.mem_cache.allocator import BaseTokenToKVPoolAllocator
@@ -34,12 +35,21 @@ if TYPE_CHECKING:
     from sglang.srt.managers.cache_controller import HiCacheController
     from sglang.srt.managers.schedule_batch import Req
     from sglang.srt.mem_cache.buffer_mode.pipeline import BufferModePipeline
+    from sglang.srt.mem_cache.prefix_pin import PrefixPinRegistry
     from sglang.srt.mem_cache.radix_cache import RadixKey
     from sglang.srt.mem_cache.storage_prefetch import StoragePrefetchRetries
     from sglang.srt.mem_cache.unified_cache.cache_action import (
         CacheAction,
         ComponentAction,
     )
+
+
+class CachedPrefix(msgspec.Struct, frozen=True):
+    """Where a finished request's KV ended up in the tree: the node holding its
+    last cached token, and how many tokens the root-to-node path covers."""
+
+    node_id: int
+    num_tokens: int
 
 
 @dataclasses.dataclass(frozen=True)
@@ -376,6 +386,8 @@ class BasePrefixCache(ABC, PrefixCacheTrait):
     storage_prefetch_retries: Optional[StoragePrefetchRetries] = None
     # Set by caches that publish KV placement events; None means they don't.
     kv_events: Optional[KVCacheEventRecorder] = None
+    # Set by the scheduler under --enable-prefix-pin; None means pins are off.
+    prefix_pins: Optional[PrefixPinRegistry] = None
 
     def init_metrics_collector(self):
         from sglang.srt.layers.dp_attention import is_dp_attention_enabled
@@ -455,11 +467,14 @@ class BasePrefixCache(ABC, PrefixCacheTrait):
         return None
 
     @abstractmethod
-    def insert_req(self, req: Req, *, up_to: int, **kwargs):
+    def insert_req(self, req: Req, *, up_to: int, **kwargs) -> Optional[CachedPrefix]:
         """Hand a finished request's KV up to row position ``up_to`` to the
         tree: insert what can be keyed and advance ``cache_protected_len``
         past it. The caller then frees ``[cache_protected_len, up_to)`` and
-        everything after, and unpins; nothing here releases a slot."""
+        everything after, and unpins; nothing here releases a slot.
+
+        Returns where the KV landed when the cache can name the node (prefix
+        pins lock it), else None."""
 
     @abstractmethod
     def cache_unfinished_req(self, req: Req, **kwargs):

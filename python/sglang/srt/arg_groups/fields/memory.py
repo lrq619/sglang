@@ -15,7 +15,10 @@ from sglang.srt.arg_groups.arg_utils import (
     A,
     Arg,
 )
-from sglang.srt.arg_groups.choices import RADIX_EVICTION_POLICY_CHOICES
+from sglang.srt.arg_groups.choices import (
+    PREFIX_PIN_RELEASE_ORDER_CHOICES,
+    RADIX_EVICTION_POLICY_CHOICES,
+)
 
 
 class Memory(msgspec.Struct):
@@ -88,6 +91,30 @@ class Memory(msgspec.Struct):
         bool,
         "Track per-session references on UnifiedRadixCache KV: eviction consumes unreferenced entries before referenced ones, and closing a session only dereferences its KV.",
     ] = False
+    enable_prefix_pin: A[
+        bool,
+        "Enable the /pin_prefix and /unpin_prefix endpoints (and pin_on_finish / release_pin_of on /generate): an external controller pins a finished request's cached prefix in the radix tree until it unpins it. Requires the unified radix cache.",
+    ] = False
+    prefix_pin_max_kv_fraction: A[
+        float,
+        "Upper bound on KV tokens held by prefix pins, as a fraction of the KV pool; a pin beyond it is refused.",
+    ] = 0.5
+    prefix_pin_max_mamba_fraction: A[
+        float,
+        "Upper bound on mamba states held by prefix pins, as a fraction of the mamba pool; a pin beyond it is refused.",
+    ] = 0.5
+    prefix_pin_release_order: A[
+        str,
+        Arg(
+            help=(
+                "Which pins the scheduler force-releases first when a request "
+                "cannot otherwise make progress: 'latest_return' (latest "
+                "expected next turn; unknown counts as never), 'oldest', or "
+                "'largest'."
+            ),
+            choices=PREFIX_PIN_RELEASE_ORDER_CHOICES,
+        ),
+    ] = "latest_return"
     radix_cache_backend: A[
         Optional[str],
         "Name of a radix-cache backend previously registered via register_radix_cache_backend. Omit this flag to use the built-in default cache selection chain.",

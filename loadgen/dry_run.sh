@@ -21,6 +21,7 @@
 #   RUN_NAME      logdir prefix, LOG_ROOT/<RUN_NAME>_<timestamp> (default dryrun)
 #   METRICS_INTERVAL  /metrics sampling period in seconds (default 1)
 #   PRELOAD_JOBS  parallel readers for the page-cache preload (default 8; 0 skips it)
+#   LOADGEN_EXTRA_ARGS  extra loadgen.py flags (word-split), e.g. "--pin"
 #   Plus every knob of launch_servers.sh (MODEL, CONTEXT_LENGTH, BASE_PORT, ...).
 set -uo pipefail
 
@@ -59,6 +60,8 @@ log "logdir: $LOGDIR"
     echo "mamba_full_memory_ratio: ${MAMBA_FULL_MEMORY_RATIO:-1.3}"
     echo "corpus: ${CORPUS:-synthetic}"
     echo "arrivals: ${ARRIVALS:-generated}"
+    echo "extra_server_args: ${EXTRA_SERVER_ARGS:-}"
+    echo "loadgen_extra_args: ${LOADGEN_EXTRA_ARGS:-}"
     echo "PBS_JOBID: ${PBS_JOBID:-}"
 } > "$LOGDIR/run_info.txt"
 nvidia-smi > "$LOGDIR/nvidia-smi.before.txt" 2>&1
@@ -172,6 +175,7 @@ log "loadgen: ${DURATION}s"
     --sessions-output "$LOGDIR/sessions.csv" \
     --duration "$DURATION" \
     --progress-interval 30 \
+    ${LOADGEN_EXTRA_ARGS:-} \
     > "$LOGDIR/loadgen.log" 2>&1 &
 LOADGEN_PID=$!
 # Grace period past --duration for loadgen to cancel in-flight requests and exit.

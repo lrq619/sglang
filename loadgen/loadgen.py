@@ -160,7 +160,8 @@ def _insert_salt(*, ids: list, salt: list) -> list:
 
 
 async def _generate(
-    *, http: aiohttp.ClientSession, endpoint: str, rid: str, ctx: list, max_new: int
+    *, http: aiohttp.ClientSession, endpoint: str, rid: str, ctx: list, max_new: int,
+    pin_fields: dict,
 ) -> TurnResult:
     payload = {
         "rid": rid,
@@ -171,6 +172,7 @@ async def _generate(
             "temperature": 0,
         },
         "stream": False,
+        **pin_fields,
     }
     t_send = time.time()
     async with http.post(f"{endpoint}/generate", json=payload) as resp:
@@ -311,6 +313,7 @@ async def _replay_session(
     t0: float,
     rec: Recorder,
     srec: SessionRecorder,
+    pin: str,
 ):
     turns = session["turns"]
     state = {
@@ -325,7 +328,8 @@ async def _replay_session(
         await asyncio.sleep(max(0.0, t0 + arrival.arrival_offset - time.monotonic()))
         state.update(status="cut", t_arrival=time.time())
         await _replay_turns(
-            http=http, arrival=arrival, turns=turns, salt=salt, rec=rec, state=state
+            http=http, arrival=arrival, turns=turns, salt=salt, rec=rec, state=state,
+            pin=pin,
         )
     finally:
         if state["status"] == "cut":
@@ -349,24 +353,29 @@ async def _replay_session(
 
 async def _replay_turns(
     *, http: aiohttp.ClientSession, arrival: Arrival, turns: list, salt: list,
-    rec: Recorder, state: dict,
+    rec: Recorder, state: dict, pin: str,
 ):
     """Replays every turn; leaves state["status"] at "cut" if cancelled mid-way."""
     rec.sessions_active += 1
     ctx_before = ctx_after = None
+    prev_rid = None
     try:
         for i, turn in enumerate(turns):
             ctx = _next_ctx(
                 turn=turn, ctx_before=ctx_before, ctx_after=ctx_after, salt=salt
             )
+            rid = f"r{arrival.replica_id}-t{turn['turn_index']}-{os.getpid()}"
             rec.requests_inflight += 1
             try:
                 res = await _generate(
                     http=http,
                     endpoint=arrival.endpoint,
-                    rid=f"r{arrival.replica_id}-t{turn['turn_index']}-{os.getpid()}",
+                    rid=rid,
                     ctx=ctx,
                     max_new=turn["decode_num_tokens"],
+                    pin_fields=_pin_fields(
+                        pin=pin, prev_rid=prev_rid, is_last=i + 1 == len(turns), turn=turn
+                    ),
                 )
             except Exception as e:
                 # The context cannot be continued without this turn's output.
@@ -383,6 +392,7 @@ async def _replay_turns(
             if res.t_end <= rec.deadline:
                 state["turns_done"] += 1
             ctx_before, ctx_after = ctx, ctx + res.output_ids + [IM_END]
+            prev_rid = rid
             if i + 1 < len(turns):
                 await _tool_wait(seconds=turn["turn_toolcall_latency_ms"] / 1000, state=state)
         rec.sessions_done += 1
@@ -401,6 +411,24 @@ async def _tool_wait(*, seconds: float, state: dict):
 
 def _fmt_ts(t: Optional[float]) -> str:
     return "" if t is None else f"{t:.6f}"
+
+
+def _pin_fields(*, pin: str, prev_rid: Optional[str], is_last: bool, turn: dict) -> dict:
+    """--pin-mode handover: hold each turn's prefix through the tool call that
+    follows it, and hand the previous turn's pin over once this turn is admitted.
+    leak: the same, but the last turn is pinned too and never released, so pins
+    pile up session after session (a controller that forgets to unpin)."""
+    if pin == "none":
+        return {}
+    fields = {"release_pin_of": prev_rid} if prev_rid is not None else {}
+    if not is_last:
+        fields.update(
+            pin_on_finish=True,
+            pin_expected_return_s=turn["turn_toolcall_latency_ms"] / 1000,
+        )
+    elif pin == "leak":
+        fields.update(pin_on_finish=True)
+    return fields
 
 
 def _error_row(*, arrival: Arrival, turn: dict, input_len: int, err: Exception) -> dict:
@@ -470,6 +498,7 @@ async def run(args):
                     t0=t0,
                     rec=rec,
                     srec=srec,
+                    pin=args.pin_mode,
                 )
                 for a in arrivals
             )
@@ -538,6 +567,22 @@ def main():
         "not recorded (default: run until every session finishes)",
     )
     parser.add_argument("--progress-interval", type=float, default=30.0)
+    parser.add_argument(
+        "--pin-mode",
+        choices=["none", "handover", "leak"],
+        default="none",
+        help="prefix pins (server needs --enable-prefix-pin): 'handover' pins each "
+        "turn through its tool call and releases it when the next turn is "
+        "admitted; 'leak' also pins every session's last turn and never "
+        "releases it",
+    )
+    parser.add_argument(
+        "--pin",
+        dest="pin_mode",
+        action="store_const",
+        const="handover",
+        help="shorthand for --pin-mode handover",
+    )
     asyncio.run(run(parser.parse_args()))
 
 

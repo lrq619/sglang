@@ -27,6 +27,7 @@
 #   MAX_USED_MIB     a GPU counts as available if its used memory is below this
 #   LOG_DIR          per-server logs, pids and endpoints.txt (default logs/servers)
 #   READY_TIMEOUT    seconds to wait for /health on each server (default 1800)
+#   EXTRA_SERVER_ARGS  extra flags appended to every server (word-split), e.g. "--enable-prefix-pin"
 #
 # Each server runs in its own process group; LOG_DIR/pids lists the group ids,
 # so `kill -- -<pgid>` stops a server together with its scheduler subprocesses.
@@ -85,6 +86,7 @@ for i in "${!GPUS[@]}"; do
         --host 0.0.0.0 \
         --port "$port" \
         --nccl-port $((port + 1000)) \
+        ${EXTRA_SERVER_ARGS:-} \
         >> "$log" 2>&1 < /dev/null &
     PIDS+=($!)
     echo $! >> "$LOG_DIR/pids"
