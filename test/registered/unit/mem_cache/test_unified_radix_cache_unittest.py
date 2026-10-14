@@ -1098,6 +1098,129 @@ class TestUnifiedRadixCacheEagleHiCacheStorageKey(CustomTestCase):
         cache.sanity_check()
 
 
+class TestUnifiedRadixPeekPrefixLen(CustomTestCase):
+    """peek_prefix_len feeds an external queue predictor from the scheduler loop:
+    it must report what match_prefix would reuse, yet leave split structure and
+    LRU order untouched, or polling it would change what gets evicted."""
+
+    def _insert(self, cache, allocator, req_to_token_pool, tokens) -> None:
+        value = allocator.alloc(len(tokens))
+        self.assertIsNotNone(value)
+        params = InsertParams(
+            key=RadixKey(array("q", tokens)), value=value[: len(tokens)]
+        )
+        if cache.supports_mamba():
+            req = Req(
+                rid=f"peek-{len(tokens)}-{tokens[-1]}",
+                origin_input_text="",
+                origin_input_ids=array("q"),
+                sampling_params=SamplingParams(temperature=0, max_new_tokens=1),
+            )
+            req_to_token_pool.alloc([req])
+            params.mamba_value = req.kv.mamba_pool_idx.unsqueeze(0)
+        cache.insert(params)
+
+    @staticmethod
+    def _tree_state(core) -> list:
+        out, stack = [], [core.root_node]
+        while stack:
+            node = stack.pop()
+            out.append((node.id, len(node.key), node.last_access_time))
+            stack.extend(node.children.values())
+        return sorted(out)
+
+    def _check(self, cfg: CacheConfig) -> None:
+        cache, allocator, req_to_token_pool = build_fixture(cfg)
+        self._insert(cache, allocator, req_to_token_pool, list(range(1, 9)))
+        self._insert(cache, allocator, req_to_token_pool, list(range(1, 13)))
+        # Exact, deeper, mid-node (would split) and miss queries.
+        for query in (
+            list(range(1, 9)),
+            list(range(1, 13)) + [99, 98],
+            list(range(1, 11)) + [77, 76],
+            [50, 51, 52],
+        ):
+            key = RadixKey(array("q", query))
+            before = self._tree_state(cache.tree_core)
+            peeked = cache.peek_prefix_len(key)
+            self.assertEqual(self._tree_state(cache.tree_core), before)
+            matched = cache.match_prefix(MatchPrefixParams(key=key))
+            self.assertEqual(peeked, len(matched.device_indices), msg=str(query))
+
+    def test_eviction_ranks_predict_lru_eviction(self):
+        """After LRU eviction frees V device tokens, a boundary survives iff its
+        rank >= V; the predictor shrinks a waiting request's prefix by this rule."""
+        cfg = CacheConfig(page_size=1, kv_size=256, max_context_len=256)
+        # Sessions sharing a 4-token system prompt, touched oldest to newest; the
+        # second session grows a turn so its path has two boundaries.
+        seqs = [
+            [1, 2, 3, 4, 10, 11, 12],
+            [1, 2, 3, 4, 20, 21, 22, 23, 24],
+            [1, 2, 3, 4, 20, 21, 22, 23, 24, 25, 26, 27],
+            [1, 2, 3, 4, 30, 31, 32, 33],
+        ]
+        for request in range(0, 30, 2):
+            cache, allocator, req_to_token_pool = build_fixture(cfg)
+            for seq in seqs:
+                self._insert(cache, allocator, req_to_token_pool, seq)
+            ranks = cache.eviction_ranks()
+            paths = {
+                tuple(seq): [
+                    (length, ranks.get(node))
+                    for length, node in cache.peek_prefix_path(
+                        RadixKey(array("q", seq))
+                    )
+                ]
+                for seq in seqs
+            }
+            before = cache.evictable_size()
+            cache.evict(EvictParams(num_tokens=request))
+            evicted = before - cache.evictable_size()
+            for seq, path in paths.items():
+                expected = max(
+                    [n for n, rank in path if rank is None or rank >= evicted],
+                    default=0,
+                )
+                self.assertEqual(
+                    cache.peek_prefix_len(RadixKey(array("q", list(seq)))),
+                    expected,
+                    msg=f"requested={request} evicted={evicted} path={path}",
+                )
+
+    def test_shared_locked_tokens_is_what_survives_release(self):
+        """A finishing request frees its path except what another holder still
+        locks; the predictor releases exactly ctx - shared_locked_tokens."""
+        cfg = CacheConfig(page_size=1, kv_size=256, max_context_len=256)
+        cache, allocator, req_to_token_pool = build_fixture(cfg)
+        a, b = [1, 2, 3, 4, 10, 11, 12], [1, 2, 3, 4, 20, 21]
+        for seq in (a, b):
+            self._insert(cache, allocator, req_to_token_pool, seq)
+        leaf = lambda seq: cache.match_prefix(
+            MatchPrefixParams(key=RadixKey(array("q", seq)))
+        ).last_device_node
+        lock_a = cache.inc_lock_ref(leaf(a)).to_dec_params()
+        self.assertEqual(cache.shared_locked_tokens(leaf(a)), 0)
+        lock_b = cache.inc_lock_ref(leaf(b)).to_dec_params()
+        self.assertEqual(cache.shared_locked_tokens(leaf(a)), 4)
+        self.assertEqual(cache.shared_locked_tokens(leaf(b)), 4)
+        before = cache.evictable_size()
+        cache.dec_lock_ref(leaf(a), lock_a)
+        self.assertEqual(cache.evictable_size() - before, len(a) - 4)
+        self.assertEqual(cache.shared_locked_tokens(leaf(b)), 0)
+        cache.dec_lock_ref(leaf(b), lock_b)
+
+    def test_kv_only_matches_and_does_not_mutate(self):
+        self._check(CacheConfig(page_size=1, kv_size=128, max_context_len=128))
+
+    def test_mamba_boundary_matches_and_does_not_mutate(self):
+        self._check(
+            CacheConfig(
+                components=(ComponentType.FULL, ComponentType.MAMBA),
+                mamba_cache_size=8,
+            )
+        )
+
+
 class TestUnifiedRadixCacheKVEvents(CustomTestCase):
     cfg = CacheConfig(page_size=2, kv_size=64, max_context_len=64)
 

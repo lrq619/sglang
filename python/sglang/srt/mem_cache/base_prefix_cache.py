@@ -436,6 +436,27 @@ class BasePrefixCache(ABC, PrefixCacheTrait):
     def supports_fast_match_prefix(self) -> bool:
         return False
 
+    def peek_prefix_len(self, key: RadixKey) -> Optional[int]:
+        """Prefix length match_prefix would reuse now, without mutating the cache;
+        None when the cache cannot answer read-only."""
+        return None
+
+    def peek_prefix_path(self, key: RadixKey) -> Optional[list[tuple[int, Any]]]:
+        """Read-only match boundaries of ``key`` as (prefix length, node handle),
+        shallowest first; None when the cache cannot answer read-only."""
+        return None
+
+    def shared_locked_tokens(self, node_handle: Any) -> Optional[int]:
+        """Read-only: device tokens on the path to ``node_handle`` that another
+        holder also locks, so they stay allocated when this holder releases.
+        None if unsupported."""
+        return None
+
+    def eviction_ranks(self) -> Optional[dict[Any, int]]:
+        """Read-only: node handle -> device tokens evicted before that node starts
+        to go; nodes that cannot be evicted are absent. None if unsupported."""
+        return None
+
     def dfs_weight_order(self, node_handles: Sequence[Any]) -> list[int]:
         """Return request indices in depth-first, subtree-weight order."""
         return _dfs_weight_order(self.root_node, node_handles, self.resolve_node_handle)

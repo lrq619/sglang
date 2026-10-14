@@ -1,0 +1,19 @@
+{
+  "d0": 0.018234763028205935,
+  "d1": 0.00019269931135297135,
+  "d2": 0.019968979335847646,
+  "p0": 0.025148610807661245,
+  "p1": 0.00011548668146760548,
+  "p2": 0.0028259288603731995,
+  "meta": {
+    "refit_from": "/home/lrq619/proj/sglang/logs/qp_r4.5_h100_20261014_080050/profile_costs.log",
+    "model_tag": "Qwen/Qwen3.8-27B",
+    "chunk": 32768,
+    "gpu": "NVIDIA H100 NVL",
+    "profiled_unix": 1791966568.6403284,
+    "prefill_median_rel_err": 0.03749848632068185,
+    "decode_median_rel_err": 0.002044213240694531,
+    "num_prefill_points": 87,
+    "num_decode_points": 13
+  }
+}

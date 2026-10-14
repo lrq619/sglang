@@ -934,6 +934,89 @@ class UnifiedTreeCore(UnifiedTreeCoreInterface):
             action,
         )
 
+    def peek_prefix_path(self, key: RadixKey) -> list[tuple[int, NodeId]]:
+        """Every device match boundary of ``key``, shallowest first, as (prefix
+        length, node holding it); the last one is what match_prefix would reuse.
+        Read-only: no node split, no access-time or component-LRU refresh."""
+        key, _ = key.maybe_to_bigram_view(self.is_eagle)
+        key = key.page_aligned(self.page_size)
+        validators = tuple(
+            comp.create_match_validator(match_device_only=True)
+            for comp in self.components
+        )
+        kv_only = all(
+            comp.component_type == BASE_COMPONENT_TYPE for comp in self.components
+        )
+        node, offset, path = self.root_node, 0, []
+        while offset < len(key):
+            child = node.children.get(key.child_key_at(offset, self.page_size))
+            if child is None or child.evicted:
+                break
+            prefix_len = child.key.match_at(key, offset, page_size=self.page_size)
+            if prefix_len < len(child.key):
+                # The parent a split would create holds no auxiliary state, so a
+                # partial node counts only when KV is the sole component.
+                if kv_only and all(v(child) for v in validators):
+                    path.append((offset + prefix_len, child.id))
+                break
+            offset += prefix_len
+            node = child
+            if all(v(node) for v in validators):
+                path.append((offset, node.id))
+        return path
+
+    def peek_prefix_len(self, key: RadixKey) -> int:
+        path = self.peek_prefix_path(key)
+        return path[-1][0] if path else 0
+
+    def shared_locked_tokens(self, node_id: NodeId) -> int:
+        """Device tokens on the path root..node that another holder also locks
+        (Full lock_ref > 1): what stays allocated when this path's holder ends.
+        Read-only."""
+        node = self.node_by_id(node_id)
+        total = 0
+        while node is not None and node is not self.root_node:
+            cd = node.component_data[BASE_COMPONENT_TYPE]
+            if cd.lock_ref > 1 and cd.value is not None:
+                total += len(cd.value)
+            node = node.parent
+        return total
+
+    def eviction_ranks(self) -> dict[NodeId, int]:
+        """Device Full-KV tokens evicted before each evictable node starts to go.
+
+        Eviction pops evictable leaves by eviction priority, so a node goes only
+        after its whole subtree: it is ordered by the newest priority in that
+        subtree, deeper first on ties. Locked nodes and their ancestors never
+        go and are absent. Read-only, one walk of the tree.
+        """
+        get_priority = self.eviction_strategy.get_priority
+        order = []
+        # node id -> newest priority in its subtree; None when the subtree is pinned.
+        subtree_priority: dict[NodeId, Any] = {}
+        stack = [(self.root_node, 0, False)]
+        while stack:
+            node, depth, expanded = stack.pop()
+            if not expanded:
+                stack.append((node, depth, True))
+                stack.extend((c, depth + 1, False) for c in node.children.values())
+                continue
+            children = [subtree_priority[c.id] for c in node.children.values()]
+            cd = node.component_data[BASE_COMPONENT_TYPE]
+            if node is self.root_node or cd.lock_ref > 0 or None in children:
+                subtree_priority[node.id] = None
+                continue
+            prio = max([get_priority(node), *children])
+            subtree_priority[node.id] = prio
+            if cd.value is not None:
+                order.append((prio, -depth, node.id, len(cd.value)))
+        order.sort(key=lambda x: (x[0], x[1]))
+        ranks, evicted_before = {}, 0
+        for _, _, node_id, tokens in order:
+            ranks[node_id] = evicted_before
+            evicted_before += tokens
+        return ranks
+
     def match_full_device_prefix(self, key: RadixKey) -> tuple[int, NodeId, int]:
         """Read-only FULL-device match, independent of auxiliary components; the
         third result counts the whole deepest node (a partial match pins it all)."""

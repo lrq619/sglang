@@ -189,6 +189,9 @@ const LAT_COMPONENTS = [
   ["turn_toolcall_latency", "toolcall"],
   ["server_e2e_latency", "server e2e"],
 ];
+// Relative error of the queue prediction is only shown where the actual wait is at
+// least this long; it diverges as the actual wait goes to 0.
+const QPRED_MIN_ACTUAL_S = 1;
 const FETCH_TIMEOUT_MS = 20000;
 const RELOAD_INTERVAL_MS = 10000;
 // cache: run name -> {etag, data}, so a 304 or a failed reload keeps the last good data.
@@ -419,12 +422,14 @@ function render() {
     <details class="section" data-key="progress" ${isOpen("progress") ? "open" : ""}><summary>Session progress <span class="sub">one bar per session, bottom = first turn</span></summary><div id="progress"></div></details>
     <details class="section" data-key="req" ${isOpen("req") ? "open" : ""}><summary>Request metrics <span class="sub">CDF over finished turns / sessions</span></summary><div class="grid" id="req"></div></details>
     <details class="section" data-key="req-time" ${isOpen("req-time") ? "open" : ""}><summary>Request metrics vs. time <span class="sub">one point per turn at its send time, per session at its first send</span></summary><div class="grid" id="req-time"></div></details>
+    ${hasQueuePrediction(d.turns) ? `<details class="section" data-key="qpred" ${isOpen("qpred") ? "open" : ""}><summary>Queue prediction <span class="sub">turns with a forecast at send; relative error = (pred - actual) / actual over actual &ge; ${QPRED_MIN_ACTUAL_S}s</span></summary><div class="grid" id="qpred"></div></details>` : ""}
     <details class="section" data-key="srv" ${isOpen("srv") ? "open" : ""}><summary>Server metrics <span class="sub">sampled from /metrics, one line per endpoint</span></summary><div class="grid" id="srv"></div></details>`;
 
   renderProgress($("#progress"), sessions);
   const t0 = runStartTime(d);
   renderRequest($("#req"), sessions, d.turns);
   renderRequestTime($("#req-time"), sessions, d.turns, t0);
+  if (hasQueuePrediction(d.turns)) renderQueuePrediction($("#qpred"), d.turns, t0);
   renderServer($("#srv"), d, t0);
   main.scrollTop = scrollTop;
 }
@@ -586,6 +591,37 @@ function renderRequestTime(el, sessions, turns, t0) {
     series: LAT_COMPONENTS.map(([k, name]) => ({ name, pts: turnPts(k) })) });
   timeLineCard(el, { id: "time-kvc-hit", title: "kvc_hit_ratio vs. turn start", fmt: fmtPct, yLabel: "KV cache hit ratio", yMax: 1,
     series: [{ name: "kvc hit ratio", pts: turnPts("kvc_hit_ratio") }] });
+}
+
+function hasQueuePrediction(turns) {
+  return turns.some((t) => t.turn_predicted_queuing_latency != null);
+}
+
+function renderQueuePrediction(el, turns, t0) {
+  const ok = turns
+    .filter((t) => t.status === "ok" && t.t_send != null && t.turn_queuing_latency != null && t.turn_predicted_queuing_latency != null)
+    .sort((a, b) => a.t_send - b.t_send);
+  const label = (t) => `replica ${t.replica_id} · turn ${t.turn_id}`;
+  const pts = (key) => ok.map((t) => [t.t_send - t0, t[key], label(t)]);
+  cdfCard(el, { id: "qpred-cdf", title: "turn_queuing_latency and turn_predicted_queuing_latency", logToggle: { axis: "x", on: true },
+    series: [
+      { name: "actual", values: ok.map((t) => t.turn_queuing_latency) },
+      { name: "predicted", values: ok.map((t) => t.turn_predicted_queuing_latency) },
+    ] });
+  timeLineCard(el, { id: "qpred-time", title: "turn_queuing_latency and turn_predicted_queuing_latency vs. turn start", logToggle: { axis: "y", on: false },
+    series: [
+      { name: "actual", pts: pts("turn_queuing_latency") },
+      { name: "predicted", pts: pts("turn_predicted_queuing_latency") },
+    ] });
+  const queued = ok.filter((t) => t.turn_queuing_latency >= QPRED_MIN_ACTUAL_S);
+  const relErr = (t) => (t.turn_predicted_queuing_latency - t.turn_queuing_latency) / t.turn_queuing_latency;
+  cdfCard(el, { id: "qpred-err-cdf", title: `queue prediction relative error (actual >= ${QPRED_MIN_ACTUAL_S}s)`, fmt: fmtPct, xLabel: "relative error",
+    series: [
+      { name: "signed", values: queued.map(relErr) },
+      { name: "absolute", values: queued.map((t) => Math.abs(relErr(t))) },
+    ] });
+  timeLineCard(el, { id: "qpred-err-time", title: `queue prediction relative error vs. turn start (actual >= ${QPRED_MIN_ACTUAL_S}s)`, fmt: fmtPct, yLabel: "relative error",
+    series: [{ name: "signed", pts: queued.map((t) => [t.t_send - t0, relErr(t), label(t)]) }] });
 }
 
 function renderServer(el, d, t0) {

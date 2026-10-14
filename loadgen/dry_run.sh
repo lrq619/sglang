@@ -22,6 +22,10 @@
 #   METRICS_INTERVAL  /metrics sampling period in seconds (default 1)
 #   PRELOAD_JOBS  parallel readers for the page-cache preload (default 8; 0 skips it)
 #   LOADGEN_EXTRA_ARGS  extra loadgen.py flags (word-split), e.g. "--pin"
+#   PREDICTOR_COSTS  StepCosts JSON for the queueing predictor sidecar; profiled on the
+#                    first (idle) server when the file is missing, then the sidecar runs
+#                    alongside loadgen and logs first-sight predictions to predictions.csv
+#   PREDICTOR_PORT   sidecar port (default 32000; 31000+ are the servers' NCCL ports)
 #   Plus every knob of launch_servers.sh (MODEL, CONTEXT_LENGTH, BASE_PORT, ...).
 set -uo pipefail
 
@@ -62,12 +66,15 @@ log "logdir: $LOGDIR"
     echo "arrivals: ${ARRIVALS:-generated}"
     echo "extra_server_args: ${EXTRA_SERVER_ARGS:-}"
     echo "loadgen_extra_args: ${LOADGEN_EXTRA_ARGS:-}"
+    echo "mem_fraction_static: ${MEM_FRACTION_STATIC:-0.85}"
+    echo "predictor_costs: ${PREDICTOR_COSTS:-}"
     echo "PBS_JOBID: ${PBS_JOBID:-}"
 } > "$LOGDIR/run_info.txt"
 nvidia-smi > "$LOGDIR/nvidia-smi.before.txt" 2>&1
 
 LOADGEN_PID=
 POLLER_PID=
+PREDICTOR_PID=
 stop_poller() {
     if [ -n "$POLLER_PID" ] && kill -0 "$POLLER_PID" 2> /dev/null; then
         kill -TERM "$POLLER_PID" 2> /dev/null
@@ -84,6 +91,9 @@ cleanup() {
         kill -KILL "$LOADGEN_PID" 2> /dev/null
     fi
     stop_poller
+    if [ -n "$PREDICTOR_PID" ] && kill -0 "$PREDICTOR_PID" 2> /dev/null; then
+        kill -TERM "$PREDICTOR_PID" 2> /dev/null
+    fi
     # Scoped to this run's process groups and GPUs: other runs may share the node.
     local pgid
     for pgid in $(cat "$LOGDIR/servers/pids" 2> /dev/null); do
@@ -145,6 +155,31 @@ for f in "$LOGDIR"/servers/server*_port*.log; do
     log "$(basename "$f"): $(grep -o 'load_weight=[0-9.]*' "$f" | tail -1)," \
         "$(grep -o 'cuda_graph={prefill=[0-9.]*, decode=[0-9.]*' "$f" | tail -1)"
 done
+
+# ===== 1b. queueing predictor sidecar =====
+if [ -n "${PREDICTOR_COSTS:-}" ]; then
+    if [ ! -s "$PREDICTOR_COSTS" ]; then
+        log "profiling step costs on ${ENDPOINTS%%,*} -> $PREDICTOR_COSTS"
+        (cd "$REPO" && "$PYTHON" -u -m controller.queuing_predictor.profile_costs \
+            --url "${ENDPOINTS%%,*}" --output "$PREDICTOR_COSTS" --model-tag "$MODEL") \
+            > "$LOGDIR/profile_costs.log" 2>&1 || { log "profiling failed"; exit 1; }
+        tail -n 1 "$LOGDIR/profile_costs.log"
+    fi
+    cp "$PREDICTOR_COSTS" "$LOGDIR/step_costs.json"
+    (cd "$REPO" && exec "$PYTHON" -u -m controller.queuing_predictor.server \
+        --instances "$ENDPOINTS" --costs "$PREDICTOR_COSTS" \
+        --port "${PREDICTOR_PORT:-32000}" --poll-interval 0.25 \
+        --shadow-log "$LOGDIR/predictions.csv" \
+        --dump-snapshots "$LOGDIR/snapshots.jsonl.gz" \
+        --log-predicts "$LOGDIR/predict_log.jsonl") > "$LOGDIR/predictor.log" 2>&1 &
+    PREDICTOR_PID=$!
+    until curl -sf "http://127.0.0.1:${PREDICTOR_PORT:-32000}/health" > /dev/null; do
+        kill -0 "$PREDICTOR_PID" 2> /dev/null || { log "predictor sidecar died"; exit 1; }
+        sleep 1
+    done
+    LOADGEN_EXTRA_ARGS="${LOADGEN_EXTRA_ARGS:-} --predictor http://127.0.0.1:${PREDICTOR_PORT:-32000}"
+    log "predictor sidecar on :${PREDICTOR_PORT:-32000} -> predictions.csv, turn_predicted_queuing_latency"
+fi
 
 # ===== 2. loadgen =====
 if [ -z "${CORPUS:-}" ]; then

@@ -62,6 +62,7 @@ from sglang.srt.managers.schedule_batch import (
     SamplingLogprobsMode,
     get_return_hidden_states_mode,
 )
+from sglang.srt.managers.scheduler_snapshot import SchedulerSnapshot
 from sglang.srt.multimodal.mm_utils import has_valid_data
 from sglang.srt.sampling.sampling_mask import SamplingMaskChunk
 from sglang.srt.sampling.sampling_params import SamplingParams
@@ -2290,6 +2291,28 @@ class GetInternalStateReqOutput(BaseReq, kw_only=True):
     # producer sanitizes it with msgspec_to_builtins so every value is
     # msgpack-native.
     internal_state: Dict[str, Any]
+
+
+class GetSchedulerSnapshotReq(BaseReq, kw_only=True):
+    # Return finished-ring entries with seq > finished_since; None returns none.
+    finished_since: Optional[int] = None
+    max_waiting: int = 1024
+
+
+class GetSchedulerSnapshotReqOutput(BaseReq, kw_only=True):
+    snapshot: SchedulerSnapshot
+
+
+class MatchPrefixReqInput(BaseReq, kw_only=True):
+    input_ids: List[int]
+
+
+class MatchPrefixReqOutput(BaseReq, kw_only=True):
+    dp_rank: int
+    # None when the tree cache cannot match read-only.
+    matched_tokens: Optional[int]
+    # Same layout as WaitingReqSnapshot.prefix_path.
+    prefix_path: Optional[List[List[Optional[int]]]] = None
 
 
 class SetInternalStateReq(BaseReq, kw_only=True):

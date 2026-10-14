@@ -154,6 +154,73 @@ def estimate_prefill_extend_tile_metrics(
     }
 
 
+def _radix_key_for_req(
+    tree_cache: BasePrefixCache, req: Req, token_ids: array[int]
+) -> RadixKey:
+    # unified_kv SWA lives in a per-request ring that's not content-stable and is
+    # never stored in the radix tree, so a reused prefix carries stale SWA. Cap
+    # the match by the trailing sliding window so it gets re-prefilled, rewriting
+    # this request's SWA ring. No-op for other layouts.
+    reprefill_tail = tree_cache.swa_reprefill_tail_tokens()
+    key_limit = max(0, len(token_ids) - reprefill_tail) if reprefill_tail else None
+    return RadixKey(
+        token_ids=token_ids,
+        extra_key=req.extra_key,
+        limit=key_limit,
+        cache_salt=req.cache_salt,
+    )
+
+
+# A prefix boundary: [prefix length, device tokens evicted before it is lost]; the
+# rank is None when the boundary cannot be evicted (locked by a running request).
+PrefixBoundary = List[Optional[int]]
+
+
+def peek_prefix_path_for_req(
+    tree_cache: BasePrefixCache, req: Req, ranks: Optional[dict]
+) -> Optional[List[PrefixBoundary]]:
+    """Cached-prefix boundaries a match would give `req` now, shallowest first,
+    each with its eviction rank from `ranks`; read-only. None if unsupported."""
+    token_ids = req.origin_input_ids + req.output_ids
+    return _prefix_path(
+        tree_cache,
+        _radix_key_for_req(tree_cache, req, token_ids),
+        max_len=req._compute_max_prefix_len(len(token_ids)),
+        ranks=ranks,
+    )
+
+
+def peek_prefix_path_for_tokens(
+    tree_cache: BasePrefixCache, token_ids: array[int], ranks: Optional[dict]
+) -> Optional[List[PrefixBoundary]]:
+    """Same as peek_prefix_path_for_req for a prompt with no extra_key or salt,
+    such as a request that has not been sent yet."""
+    reprefill_tail = tree_cache.swa_reprefill_tail_tokens()
+    key_limit = max(0, len(token_ids) - reprefill_tail) if reprefill_tail else None
+    return _prefix_path(
+        tree_cache,
+        RadixKey(token_ids=token_ids, limit=key_limit),
+        max_len=max(0, len(token_ids) - 1),
+        ranks=ranks,
+    )
+
+
+def _prefix_path(
+    tree_cache: BasePrefixCache, key: RadixKey, *, max_len: int, ranks: Optional[dict]
+) -> Optional[List[PrefixBoundary]]:
+    path = tree_cache.peek_prefix_path(key)
+    if path is None or ranks is None:
+        return None
+    out: List[PrefixBoundary] = []
+    for prefix_len, node in path:
+        rank = ranks.get(node)
+        if prefix_len >= max_len:
+            out.append([max_len, rank])
+            break
+        out.append([prefix_len, rank])
+    return out
+
+
 def match_prefix_for_req(
     tree_cache: BasePrefixCache,
     req: Req,
@@ -165,21 +232,9 @@ def match_prefix_for_req(
     if token_ids is None:
         token_ids = req.origin_input_ids + req.output_ids
 
-    # unified_kv SWA lives in a per-request ring that's not content-stable and is
-    # never stored in the radix tree, so a reused prefix carries stale SWA. Cap
-    # the match by the trailing sliding window so it gets re-prefilled, rewriting
-    # this request's SWA ring. No-op for other layouts.
-    reprefill_tail = tree_cache.swa_reprefill_tail_tokens()
-    key_limit = max(0, len(token_ids) - reprefill_tail) if reprefill_tail else None
-
     match_result = tree_cache.match_prefix(
         MatchPrefixParams(
-            key=RadixKey(
-                token_ids=token_ids,
-                extra_key=req.extra_key,
-                limit=key_limit,
-                cache_salt=req.cache_salt,
-            ),
+            key=_radix_key_for_req(tree_cache, req, token_ids),
             cow_mamba=cow_mamba,
             req=req if include_req else None,
         )

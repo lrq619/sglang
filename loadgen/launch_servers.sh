@@ -22,6 +22,8 @@
 #   PYTHON           interpreter with sglang  (default: <repo>/.venv/bin/python)
 #   CONTEXT_LENGTH   max tokens per request   (default 262144, the native max)
 #   MAMBA_FULL_MEMORY_RATIO  mamba state pool : KV pool memory (default 1.3)
+#   MEM_FRACTION_STATIC  --mem-fraction-static (default 0.85, the H200 cell; 0.85
+#                    OOMs in prefill CUDA graph capture on H100 NVL, use 0.80)
 #   BASE_PORT        port of the first server (default 30000; server i uses +i)
 #   HOST_IP          address put in the printed endpoints (default: first `hostname -I`)
 #   MAX_USED_MIB     a GPU counts as available if its used memory is below this
@@ -38,6 +40,7 @@ MODEL=${MODEL:-/data/projects/12004493/models/Qwen3.8-27B}
 PYTHON=${PYTHON:-$REPO/.venv/bin/python}
 CONTEXT_LENGTH=${CONTEXT_LENGTH:-262144}
 MAMBA_FULL_MEMORY_RATIO=${MAMBA_FULL_MEMORY_RATIO:-1.3}
+MEM_FRACTION_STATIC=${MEM_FRACTION_STATIC:-0.85}
 BASE_PORT=${BASE_PORT:-30000}
 MAX_USED_MIB=${MAX_USED_MIB:-1024}
 LOG_DIR=${LOG_DIR:-logs/servers}
@@ -74,7 +77,7 @@ for i in "${!GPUS[@]}"; do
         --trust-remote-code \
         --context-length "$CONTEXT_LENGTH" \
         --kv-cache-dtype fp8_e4m3 \
-        --mem-fraction-static 0.85 \
+        --mem-fraction-static "$MEM_FRACTION_STATIC" \
         --attention-backend flashinfer \
         --chunked-prefill-size 32768 \
         --max-prefill-tokens 32768 \

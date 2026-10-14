@@ -62,6 +62,8 @@ class SchedulerOutputStreamer:
     # Rust egress ring via `rust_server.push_generation` instead of the zmq
     # detokenizer. None otherwise. (Rust-specific state lives in RustServer.)
     rust_server: Optional[RustServer] = None
+    # Called once per request when its final output is accepted for streaming.
+    on_req_finished: Optional[Callable[[Req], None]] = None
     _test_stream_output_count: int = 0
 
     def __post_init__(self) -> None:
@@ -185,6 +187,8 @@ class SchedulerOutputStreamer:
                 continue
 
             acc.accept(req=req)
+            if self.on_req_finished is not None and req.finished_output:
+                self.on_req_finished(req)
             self._maybe_log_time_stats(req=req)
 
         if (

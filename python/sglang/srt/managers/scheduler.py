@@ -148,6 +148,7 @@ from sglang.srt.managers.io_struct import (
     GetInternalStateReq,
     GetInternalStateReqOutput,
     GetPrefixPinsReqInput,
+    GetSchedulerSnapshotReq,
     GetPrefixPinsReqOutput,
     GetWeightsByNameReqInput,
     HealthCheckOutput,
@@ -159,6 +160,7 @@ from sglang.srt.managers.io_struct import (
     LoadLoRAAdapterFromTensorsReqInput,
     LoadLoRAAdapterFromTensorsReqOutput,
     LoadLoRAAdapterReqInput,
+    MatchPrefixReqInput,
     LoadLoRAAdapterReqOutput,
     MMInputsProcessError,
     OpenSessionReqInput,
@@ -226,6 +228,8 @@ from sglang.srt.managers.schedule_policy import (
     AddReqResult,
     PrefillAdder,
     SchedulePolicy,
+    peek_prefix_path_for_req,
+    peek_prefix_path_for_tokens,
 )
 from sglang.srt.managers.scheduler_components.batch_result_processor import (
     SchedulerBatchResultProcessor,
@@ -280,6 +284,9 @@ from sglang.srt.managers.scheduler_components.recv_skipper import (
 )
 from sglang.srt.managers.scheduler_components.request_receiver import (
     SchedulerRequestReceiver,
+)
+from sglang.srt.managers.scheduler_components.snapshot_inquirer import (
+    SchedulerSnapshotInquirer,
 )
 from sglang.srt.managers.scheduler_components.weight_updater import (
     SchedulerWeightUpdaterManager,
@@ -722,6 +729,8 @@ class Scheduler(
         self.init_load_publisher()
 
         self.init_load_inquirer()
+
+        self.init_snapshot_inquirer()
 
         self.init_output_streamer()
 
@@ -1850,6 +1859,14 @@ class Scheduler(
                 (FreezeGCReq, self.handle_freeze_gc),
                 (ShutdownReq, self.handle_shutdown),
                 (GetInternalStateReq, self.get_internal_state),
+                (
+                    GetSchedulerSnapshotReq,
+                    lambda req: self.snapshot_inquirer.handle(req),
+                ),
+                (
+                    MatchPrefixReqInput,
+                    lambda req: self.snapshot_inquirer.handle_match_prefix(req),
+                ),
                 (SetInternalStateReq, self.set_internal_state),
                 (RpcReqInput, self.handle_rpc_request),
                 (ExpertDistributionReq, self.expert_distribution_handle),
@@ -2510,6 +2527,37 @@ class Scheduler(
             get_decode_moment_totals=lambda: self.decode_moment_totals,
         )
 
+    def init_snapshot_inquirer(self) -> None:
+        """Queue snapshots and the finished-request ring for /scheduler_snapshot."""
+        self.snapshot_inquirer = SchedulerSnapshotInquirer(
+            dp_rank=get_parallel().dp_rank,
+            # Same logical units as the load inquirer's capacity.
+            max_total_num_tokens=self.max_total_num_tokens * self.kv_shard_widening,
+            max_running_requests=self.max_running_requests,
+            chunked_prefill_size=self.chunked_prefill_size,
+            page_size=self.page_size,
+            schedule_policy=self.schedule_policy,
+            enable_mixed_chunk=self.is_mixed_chunk,
+            enable_overlap=self.enable_overlap,
+            pool_stats_observer=self.pool_stats_observer,
+            new_token_ratio_tracker=self.new_token_ratio_tracker,
+            get_running_batch=lambda: self.running_batch,
+            get_waiting_queue=lambda: self.waiting_queue,
+            get_chunked_req=lambda: self.chunked_req,
+            get_last_batch=lambda: self.last_batch,
+            get_forward_ct=lambda: self.forward_ct,
+            get_eviction_ranks=lambda: self.tree_cache.eviction_ranks(),
+            get_shared_locked_tokens=lambda node: (
+                self.tree_cache.shared_locked_tokens(node)
+            ),
+            peek_prefix_path_for_req=lambda req, ranks: (
+                peek_prefix_path_for_req(self.tree_cache, req, ranks)
+            ),
+            peek_prefix_path_for_tokens=lambda token_ids, ranks: (
+                peek_prefix_path_for_tokens(self.tree_cache, token_ids, ranks)
+            ),
+        )
+
     def init_output_streamer(self) -> None:
         self.output_streamer = self.get_output_streamer_class()(
             send_to_detokenizer=self.ipc_channels.send_to_detokenizer,
@@ -2522,6 +2570,7 @@ class Scheduler(
                 self.enable_hicache_storage or self.enable_lmcache
             ),
             rust_server=self.rust_server,
+            on_req_finished=self.snapshot_inquirer.record_finished,
         )
 
     def get_output_streamer_class(self) -> type[SchedulerOutputStreamer]:

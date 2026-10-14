@@ -31,6 +31,7 @@ TURN_TIME_COLUMNS = ["t_send", "t_end"]
 TURN_LATENCY_COLUMNS = [
     "turn_e2e_latency",
     "turn_queuing_latency",
+    "turn_predicted_queuing_latency",
     "turn_prefill_latency",
     "turn_decode_latency",
     "turn_toolcall_latency",

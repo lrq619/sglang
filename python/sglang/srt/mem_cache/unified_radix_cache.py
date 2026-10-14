@@ -6,7 +6,15 @@ import threading
 import time
 from dataclasses import replace
 from queue import Queue
-from typing import TYPE_CHECKING, Iterator, NamedTuple, Optional, Sequence, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Iterator,
+    NamedTuple,
+    Optional,
+    Sequence,
+    TypeVar,
+)
 
 import torch
 
@@ -570,6 +578,26 @@ class UnifiedRadixCache(BasePrefixCache):
 
     def supports_fast_match_prefix(self) -> bool:
         return self.tree_core.supports_fast_match_prefix()
+
+    def peek_prefix_len(self, key: RadixKey) -> Optional[int]:
+        if self.disable:
+            return 0
+        return self.tree_core.peek_prefix_len(key)
+
+    def peek_prefix_path(self, key: RadixKey) -> Optional[list[tuple[int, Any]]]:
+        if self.disable:
+            return []
+        return self.tree_core.peek_prefix_path(key)
+
+    def shared_locked_tokens(self, node_handle: Any) -> Optional[int]:
+        if self.disable or not isinstance(node_handle, int):
+            return 0
+        return self.tree_core.shared_locked_tokens(node_handle)
+
+    def eviction_ranks(self) -> Optional[dict[Any, int]]:
+        if self.disable:
+            return {}
+        return self.tree_core.eviction_ranks()
 
     def is_chunk_cache(self) -> bool:
         return self.disable

@@ -41,6 +41,10 @@ from sglang.srt.managers.io_struct import (
     GetInternalStateReqOutput,
     GetPrefixPinsReqInput,
     GetPrefixPinsReqOutput,
+    GetSchedulerSnapshotReq,
+    GetSchedulerSnapshotReqOutput,
+    MatchPrefixReqInput,
+    MatchPrefixReqOutput,
     GetWeightsByNameReqInput,
     GetWeightsByNameReqOutput,
     InitWeightsSendGroupForRemoteInstanceReqInput,
@@ -89,6 +93,7 @@ from sglang.srt.managers.io_struct import (
     UpdateWeightVersionReqOutput,
 )
 from sglang.srt.managers.load_snapshot import LoadSnapshot
+from sglang.srt.managers.scheduler_snapshot import SchedulerSnapshot
 from sglang.srt.runtime_context import (
     get_disagg,
     get_lora,
@@ -142,6 +147,8 @@ _COMMUNICATOR_SPECS = [
     ("detach_hicache_storage", DetachHiCacheStorageReqOutput),
     ("profile", ProfileReqOutput),
     ("get_internal_state", GetInternalStateReqOutput),
+    ("get_scheduler_snapshot", GetSchedulerSnapshotReqOutput),
+    ("match_prefix", MatchPrefixReqOutput),
     ("set_internal_state", SetInternalStateReqOutput),
     ("expert_distribution", ExpertDistributionReqOutput),
     ("begin_weight_update", BeginWeightUpdateReqOutput),
@@ -1021,6 +1028,29 @@ class TokenizerControlMixin:
         ] = await self.get_internal_state_communicator(req)
         # Many DP ranks
         return [res.internal_state for res in responses]
+
+    async def get_scheduler_snapshot(
+        self: TokenizerManager, *, finished_since: Optional[int], max_waiting: int
+    ) -> List[SchedulerSnapshot]:
+        """One snapshot per DP rank, in reply order (see SchedulerSnapshot.dp_rank)."""
+        self.auto_create_handle_loop()
+        responses: List[GetSchedulerSnapshotReqOutput] = (
+            await self.get_scheduler_snapshot_communicator(
+                GetSchedulerSnapshotReq(
+                    finished_since=finished_since, max_waiting=max_waiting
+                )
+            )
+        )
+        return [res.snapshot for res in responses]
+
+    async def match_prefix(
+        self: TokenizerManager, *, input_ids: List[int]
+    ) -> List[MatchPrefixReqOutput]:
+        """Read-only cached-prefix length of input_ids on every DP rank."""
+        self.auto_create_handle_loop()
+        return await self.match_prefix_communicator(
+            MatchPrefixReqInput(input_ids=input_ids)
+        )
 
     async def set_internal_state(
         self: TokenizerManager, obj: SetInternalStateReq

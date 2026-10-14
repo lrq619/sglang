@@ -137,6 +137,7 @@ from sglang.srt.managers.io_struct import (
     InitWeightsUpdateGroupReqInput,
     LoadLoRAAdapterFromTensorsReqInput,
     LoadLoRAAdapterReqInput,
+    MatchPrefixReqInput,
     OpenSessionReqInput,
     ParseFunctionCallReq,
     PauseGenerationReqInput,
@@ -873,6 +874,48 @@ async def server_info():
             # `runtime_context.describe_kv_events_publisher` for the contract.
             "kv_events": describe_kv_events_publisher(server_args),
         }
+    )
+
+
+# example usage:
+# curl -s 'http://localhost:30000/scheduler_snapshot?finished_since=-1&max_waiting=1024'
+@app.get("/scheduler_snapshot")
+@auth_level(AuthLevel.ADMIN_OPTIONAL)
+async def scheduler_snapshot(
+    finished_since: Optional[int] = None, max_waiting: int = 1024
+):
+    """Queue state of every DP rank for an external queueing-latency predictor.
+
+    Each element carries its `dp_rank`; replies are unordered. `finished` lists
+    requests finished with seq > `finished_since` (none when it is absent), and
+    `finished_seq_tail` lets a poller detect entries it lost to the bounded ring.
+    """
+    snapshots = await _global_state.tokenizer_manager.get_scheduler_snapshot(
+        finished_since=finished_since, max_waiting=max_waiting
+    )
+    return ORJSONResponse(msgspec_to_builtins(snapshots))
+
+
+# example usage:
+# curl -s -X POST http://localhost:30000/match_prefix \
+#   -H 'Content-Type: application/json' -d '{"input_ids": [1, 2, 3]}'
+@app.post("/match_prefix")
+@auth_level(AuthLevel.ADMIN_OPTIONAL)
+async def match_prefix(obj: Annotated[MatchPrefixReqInput, Body()]):
+    """Device prefix of `input_ids` each DP rank would reuse now, read-only: the
+    match neither locks nor refreshes LRU, so it does not change eviction order."""
+    replies = await _global_state.tokenizer_manager.match_prefix(
+        input_ids=obj.input_ids
+    )
+    return ORJSONResponse(
+        [
+            {
+                "dp_rank": r.dp_rank,
+                "matched_tokens": r.matched_tokens,
+                "prefix_path": r.prefix_path,
+            }
+            for r in replies
+        ]
     )
 
 

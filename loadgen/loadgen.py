@@ -47,6 +47,9 @@ CSV_COLUMNS = [
     "t_end",
     "turn_e2e_latency",
     "turn_queuing_latency",
+    # Queue time the predictor sidecar forecast at send (--predictor); empty if
+    # its decode-length pool was not ready yet.
+    "turn_predicted_queuing_latency",
     "turn_prefill_latency",
     "turn_decode_latency",
     "turn_toolcall_latency",
@@ -314,6 +317,7 @@ async def _replay_session(
     rec: Recorder,
     srec: SessionRecorder,
     pin: str,
+    predictor: Optional[str],
 ):
     turns = session["turns"]
     state = {
@@ -329,7 +333,7 @@ async def _replay_session(
         state.update(status="cut", t_arrival=time.time())
         await _replay_turns(
             http=http, arrival=arrival, turns=turns, salt=salt, rec=rec, state=state,
-            pin=pin,
+            pin=pin, predictor=predictor,
         )
     finally:
         if state["status"] == "cut":
@@ -353,7 +357,7 @@ async def _replay_session(
 
 async def _replay_turns(
     *, http: aiohttp.ClientSession, arrival: Arrival, turns: list, salt: list,
-    rec: Recorder, state: dict, pin: str,
+    rec: Recorder, state: dict, pin: str, predictor: Optional[str],
 ):
     """Replays every turn; leaves state["status"] at "cut" if cancelled mid-way."""
     rec.sessions_active += 1
@@ -366,6 +370,13 @@ async def _replay_turns(
             )
             rid = f"r{arrival.replica_id}-t{turn['turn_index']}-{os.getpid()}"
             rec.requests_inflight += 1
+            # Runs alongside the request so the forecast never delays the send.
+            prediction = asyncio.create_task(
+                _predict(
+                    http=http, predictor=predictor, endpoint=arrival.endpoint, rid=rid,
+                    ctx=ctx, max_new=turn["decode_num_tokens"], t_send=time.time(),
+                )
+            )
             try:
                 res = await _generate(
                     http=http,
@@ -378,6 +389,7 @@ async def _replay_turns(
                     ),
                 )
             except Exception as e:
+                prediction.cancel()
                 # The context cannot be continued without this turn's output.
                 rec.write(_error_row(arrival=arrival, turn=turn, input_len=len(ctx), err=e))
                 rec.sessions_failed += 1
@@ -388,7 +400,14 @@ async def _replay_turns(
                 return
             finally:
                 rec.requests_inflight -= 1
-            rec.write(_turn_row(arrival=arrival, turn=turn, input_len=len(ctx), res=res))
+            row = _turn_row(arrival=arrival, turn=turn, input_len=len(ctx), res=res)
+            try:
+                row["turn_predicted_queuing_latency"] = await asyncio.wait_for(
+                    prediction, timeout=5
+                )
+            except asyncio.TimeoutError:
+                pass
+            rec.write(row)
             if res.t_end <= rec.deadline:
                 state["turns_done"] += 1
             ctx_before, ctx_after = ctx, ctx + res.output_ids + [IM_END]
@@ -399,6 +418,30 @@ async def _replay_turns(
         state.update(status="done", t_end=res.t_end)
     finally:
         rec.sessions_active -= 1
+
+
+async def _predict(
+    *, http: aiohttp.ClientSession, predictor: Optional[str], endpoint: str, rid: str,
+    ctx: list, max_new: int, t_send: float,
+) -> Optional[float]:
+    """Mean predicted queue time from the predictor sidecar; None on any failure,
+    so a missing or cold predictor never affects the replay."""
+    if predictor is None:
+        return None
+    payload = {
+        "rid": rid,
+        "instances": [endpoint],
+        "input_ids": ctx,
+        "max_new_tokens": max_new,
+        "t_send_unix": t_send,
+    }
+    try:
+        async with http.post(f"{predictor}/predict", json=payload) as resp:
+            body = await resp.json()
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+        return None
+    preds = [p for p in body.get("predictions", []) if "queue_mean_s" in p]
+    return preds[0]["queue_mean_s"] if preds else None
 
 
 async def _tool_wait(*, seconds: float, state: dict):
@@ -499,6 +542,7 @@ async def run(args):
                     rec=rec,
                     srec=srec,
                     pin=args.pin_mode,
+                    predictor=args.predictor,
                 )
                 for a in arrivals
             )
@@ -575,6 +619,10 @@ def main():
         "turn through its tool call and releases it when the next turn is "
         "admitted; 'leak' also pins every session's last turn and never "
         "releases it",
+    )
+    parser.add_argument(
+        "--predictor",
+        help="queueing predictor sidecar URL; logs turn_predicted_queuing_latency",
     )
     parser.add_argument(
         "--pin",
