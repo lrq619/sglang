@@ -1,0 +1,28 @@
+{
+  "d0": 0.014907276902064618,
+  "d1": 0.00011828928954652688,
+  "d2": 0.012273113486133967,
+  "p0": 0.01744922008020948,
+  "p1": 0.00007500056866723496,
+  "p2": 0.0020758125292839264,
+  "meta": {
+    "url": "http://127.0.0.1:30000",
+    "model_tag": "/data/projects/12004493/models/Qwen3.8-27B",
+    "config": {
+      "max_total_num_tokens": 957109,
+      "max_running_requests": 52,
+      "chunked_prefill_size": 32768,
+      "page_size": 1,
+      "schedule_policy": "fcfs",
+      "enable_mixed_chunk": false,
+      "enable_overlap": true,
+      "clip_max_new_tokens": 4096
+    },
+    "gpu": "NVIDIA H200",
+    "profiled_unix": 1791992912.9572134,
+    "prefill_median_rel_err": 0.031693699314331164,
+    "decode_median_rel_err": 0.008088579459264184,
+    "num_prefill_points": 90,
+    "num_decode_points": 19
+  }
+}
