@@ -504,6 +504,10 @@ class MambaComponent(TreeComponent):
         """Allocate one mamba pool slot, evicting if necessary."""
         slot = self.cache.req_to_token_pool.mamba_allocator.alloc(1)
         if slot is None:
+            if self.cache.prefix_pins is not None:
+                # Pinned states cannot be evicted; drop pins before the eviction
+                # below comes up short.
+                self.cache.prefix_pins.ensure_mamba_headroom(1)
             self.cache.evict_for_alloc(EvictParams(num_tokens=0, mamba_num=1))
             slot = self.cache.req_to_token_pool.mamba_allocator.alloc(1)
             assert slot is not None, "Can not alloc mamba cache"

@@ -31,12 +31,13 @@ from typing import TYPE_CHECKING, Callable, Optional
 import msgspec
 
 from sglang.srt.arg_groups.choices import PREFIX_PIN_RELEASE_ORDER_CHOICES
+from sglang.srt.mem_cache.base_prefix_cache import CachedPrefix
+from sglang.srt.mem_cache.radix_cache import RadixKey
 
 if TYPE_CHECKING:
     from sglang.srt.managers.schedule_batch import Req
     from sglang.srt.mem_cache.base_prefix_cache import (
         BasePrefixCache,
-        CachedPrefix,
         DecLockRefParams,
     )
 
@@ -223,6 +224,8 @@ class PrefixPinRegistry:
         expected_return_s = self._pending.pop(req.rid, req.pin_expected_return_s)
         if not wanted:
             return
+        if cached is None or cached.num_tokens == 0:
+            cached = self._deepest_reusable_prefix(req)
         result = self._pin(
             rid=req.rid, cached=cached, expected_return_s=expected_return_s
         )
@@ -309,6 +312,23 @@ class PrefixPinRegistry:
         )
         self._pinned_kv_tokens += cached.num_tokens
         return PinResult(status=PinStatus.PINNED, num_tokens=cached.num_tokens)
+
+    def _deepest_reusable_prefix(self, req: Req) -> Optional[CachedPrefix]:
+        """The deepest node of req's context a match would reuse now; read-only.
+        With mamba extra_buffer a finish inserts only up to the last mamba
+        checkpoint, so a turn that added fewer tokens than the track interval
+        inserts nothing, while the path its next turn reuses is still cached."""
+        path = self._tree_cache.peek_prefix_path(
+            RadixKey(
+                token_ids=req.origin_input_ids + req.output_ids,
+                extra_key=req.extra_key,
+                cache_salt=req.cache_salt,
+            )
+        )
+        if not path:
+            return None
+        num_tokens, node_id = path[-1]
+        return CachedPrefix(node_id=node_id, num_tokens=num_tokens)
 
     def _release(self, rid: str) -> None:
         entry = self._pins.pop(rid)

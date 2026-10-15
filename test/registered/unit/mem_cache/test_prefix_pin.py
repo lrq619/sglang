@@ -26,6 +26,11 @@ class _CountingTree:
 
     def __init__(self):
         self.locks: dict[int, int] = {}
+        # What a read-only match of any context finds: [(prefix len, node)].
+        self.reusable_path: list = []
+
+    def peek_prefix_path(self, key):
+        return self.reusable_path
 
     def inc_lock_ref(self, node_id):
         self.locks[node_id] = self.locks.get(node_id, 0) + 1
@@ -53,6 +58,10 @@ def _req(
 ):
     return SimpleNamespace(
         rid=rid,
+        origin_input_ids=[1, 2, 3],
+        output_ids=[4],
+        extra_key=None,
+        cache_salt=None,
         finished=lambda: finished,
         pin_on_finish=pin_on_finish,
         pin_expected_return_s=expected,
@@ -119,6 +128,19 @@ class TestPrefixPinRegistry(CustomTestCase):
         )
         self.assertEqual(self.tree.held(), 0)
         self.assertFalse(reg.has_pins())
+
+    def test_turn_that_inserted_nothing_pins_its_reusable_prefix(self):
+        reg = self._registry()
+        self.tree.reusable_path = [(256, 4), (512, 9)]
+        reg.on_request_released(_req("short", pin_on_finish=True), cached=None)
+        reg.on_request_released(
+            _req("empty", pin_on_finish=True), cached=_cached(2, num_tokens=0)
+        )
+        self.assertEqual(self.tree.locks, {9: 2})
+        self.assertEqual(reg.pinned_kv_tokens, 1024)
+        reg.unpin("short")
+        reg.unpin("empty")
+        self.assertEqual(self.tree.held(), 0)
 
     def test_pin_after_finish_is_refused(self):
         reg = self._registry()

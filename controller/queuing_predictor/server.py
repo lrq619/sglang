@@ -18,6 +18,13 @@ POST /predict
         "queue_mean_s", "queue_p50_s", "queue_p90_s", "prefix_tokens", "prefill_s",
         "total_mean_s", "snapshot_age_s", ...}]}
     Until the pool holds --min-pool finished turns: {"ready": false, ...}, no predictions.
+POST /pin_decision   (a turn just finished with pin_on_finish; see counterfactual.py)
+    {"instance": url, "rid": ..., "replica_id": ..., "turn_id": ...,
+     "path_tokens": ...,          # KV path the pin holds (prompt + output)
+     "reuse_tokens": ...,         # how much of it the next turn's prompt reuses
+     "next_input_len": ..., "next_decode_tokens": ..., "toolcall_s": ...}
+    -> {"decision": "pin" | "nopin", "delta_mean_finish_s", ...}; on "nopin" the
+    sidecar unpins the rid itself. One row per call goes to --pin-log.
 GET /health    pool size, per-instance poll status, unsupported configs
 GET /pool      pool quantiles
 
@@ -49,6 +56,7 @@ from aiohttp import web
 
 from controller.queuing_predictor.client import InstanceClient
 from controller.queuing_predictor.costs import StepCosts
+from controller.queuing_predictor.counterfactual import PinDecision, decide_pin
 from controller.queuing_predictor.pool import DecodePool
 from controller.queuing_predictor.predictor import predict
 from controller.queuing_predictor.simulator import UnsupportedConfig, check_supported
@@ -60,6 +68,16 @@ SHADOW_COLUMNS = [
     "snapshot_age_s", "pred_mean_s", "pred_p50_s", "pred_p90_s", "prefill_s",
     "input_len", "prefix_tokens", "admit_prefix_tokens", "prefix_known", "num_running", "step_mode",
     "kv_free", "pool_size", "predict_ms",
+]
+
+PIN_COLUMNS = [
+    "t_unix", "instance", "rid", "replica_id", "turn_id", "decision", "reason",
+    "toolcall_s", "path_tokens", "shared_tokens", "shared_known", "unique_tokens",
+    "reuse_tokens", "next_input_len", "next_decode_tokens", "evictable_other",
+    "num_running", "num_waiting", "kv_free", "kt_s",
+    *(f for f in PinDecision.__struct_fields__ if f not in (
+        "decision", "unique_tokens", "evictable_other", "num_running", "num_waiting")),
+    "snapshot_age_s", "pool_size", "decide_ms", "handler_ms", "unpin_status",
 ]
 
 
@@ -77,6 +95,8 @@ class PredictorService:
         self._shadow_file = None
         self._dump_file = None
         self._predict_log = None
+        self._pin_file = None
+        self._pin_writer: Optional[csv.DictWriter] = None
 
     async def start(self, app: web.Application) -> None:
         self._http = aiohttp.ClientSession(
@@ -93,12 +113,17 @@ class PredictorService:
             self._dump_file = gzip.open(self.args.dump_snapshots, "at")
         if self.args.log_predicts:
             self._predict_log = open(self.args.log_predicts, "a")
+        if self.args.pin_log:
+            self._pin_file = open(self.args.pin_log, "a", newline="")
+            self._pin_writer = csv.DictWriter(self._pin_file, PIN_COLUMNS)
+            if self._pin_file.tell() == 0:
+                self._pin_writer.writeheader()
         self._poller = asyncio.create_task(self._poll_loop())
 
     async def stop(self, app: web.Application) -> None:
         self._poller.cancel()
         await self._http.close()
-        for f in (self._shadow_file, self._dump_file, self._predict_log):
+        for f in (self._shadow_file, self._dump_file, self._predict_log, self._pin_file):
             if f is not None:
                 f.close()
 
@@ -249,6 +274,84 @@ class PredictorService:
                 self._predict_log.flush()
         return out
 
+    async def handle_pin_decision(self, request: web.Request) -> web.Response:
+        t0 = time.perf_counter()
+        body = await request.json()
+        url = body["instance"].rstrip("/")
+        client = self._client(url)
+        row = {
+            "t_unix": time.time(),
+            "instance": url,
+            "rid": body["rid"],
+            "replica_id": body.get("replica_id"),
+            "turn_id": body.get("turn_id"),
+            "toolcall_s": body["toolcall_s"],
+            "path_tokens": body["path_tokens"],
+            "reuse_tokens": body["reuse_tokens"],
+            "next_input_len": body["next_input_len"],
+            "next_decode_tokens": body["next_decode_tokens"],
+            "pool_size": len(self.pool),
+        }
+        decision, reason = self._pin_decide(client=client, body=body, row=row)
+        row.update(decision=decision, reason=reason)
+        if decision == "nopin":
+            try:
+                row["unpin_status"] = await client.unpin_prefix(body["rid"])
+            except (aiohttp.ClientError, asyncio.TimeoutError, KeyError) as e:
+                row["unpin_status"] = f"error: {e!r}"[:200]
+        row["handler_ms"] = (time.perf_counter() - t0) * 1e3
+        if self._pin_writer is not None:
+            self._pin_writer.writerow(row)
+            self._pin_file.flush()
+        return web.json_response(row)
+
+    def _pin_decide(self, *, client: InstanceClient, body: dict, row: dict):
+        """(decision, reason); fills the cost columns of row. Without a usable
+        snapshot or pool the pin is kept, as the handover policy would."""
+        if not self.pool.ready:
+            return "pin", "pool_not_ready"
+        if body["reuse_tokens"] <= 0:
+            return "nopin", "no_reuse"
+        snaps = client.last_snapshots
+        if not snaps:
+            return "pin", "no_snapshot"
+        snap = snaps[0]
+        try:
+            check_supported(snap["config"])
+        except UnsupportedConfig as e:
+            return "pin", f"unsupported: {e}"
+        entry = client.last_running_entry(body["rid"])
+        shared_known = entry is not None and entry.get("shared_prefix_tokens") is not None
+        shared = entry["shared_prefix_tokens"] if shared_known else 0
+        age = max(0.0, time.monotonic() - client.last_received)
+        t0 = time.perf_counter()
+        d = decide_pin(
+            snap=snap,
+            snapshot_age_s=age,
+            pool=self.pool,
+            costs=self.costs,
+            rid=body["rid"],
+            path_tokens=int(body["path_tokens"]),
+            shared_tokens=int(shared),
+            reuse_tokens=int(body["reuse_tokens"]),
+            next_input_len=int(body["next_input_len"]),
+            next_decode_tokens=int(body["next_decode_tokens"]),
+            toolcall_s=float(body["toolcall_s"]),
+            samples=self.args.pin_samples,
+            rng=self.rng,
+        )
+        row.update(msgspec.to_builtins(d))
+        row.update(
+            decide_ms=(time.perf_counter() - t0) * 1e3,
+            shared_tokens=shared,
+            shared_known=int(shared_known),
+            snapshot_age_s=age,
+            kv_free=snap["memory"]["kv_available"] + snap["memory"]["kv_evictable"],
+            # The simple estimate: every waiting request held back for the whole tool call.
+            kt_s=d.num_waiting * float(body["toolcall_s"]),
+        )
+        return d.decision, "simulated"
+
     def _shadow_predict(self, *, url: str, got) -> None:
         received, snaps = got
         client = self.clients[url]
@@ -365,6 +468,13 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--shadow-log", help="CSV of first-sight predictions per queued rid")
     p.add_argument("--dump-snapshots", help="gzip JSON lines of every polled snapshot")
     p.add_argument("--log-predicts", help="JSON lines of every /predict input and result")
+    p.add_argument("--pin-log", help="CSV of every /pin_decision with both worlds' costs")
+    p.add_argument(
+        "--pin-samples",
+        type=int,
+        default=8,
+        help="Monte Carlo draws per /pin_decision (each runs both worlds)",
+    )
     p.add_argument(
         "--cap-by-max-new",
         action="store_true",
@@ -383,6 +493,7 @@ def main() -> None:
     app.on_startup.append(service.start)
     app.on_cleanup.append(service.stop)
     app.router.add_post("/predict", service.handle_predict)
+    app.router.add_post("/pin_decision", service.handle_pin_decision)
     app.router.add_get("/health", service.handle_health)
     app.router.add_get("/pool", service.handle_pool)
     web.run_app(app, host=args.host, port=args.port, access_log=None)

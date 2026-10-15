@@ -171,7 +171,8 @@ if [ -n "${PREDICTOR_COSTS:-}" ]; then
         --port "${PREDICTOR_PORT:-32000}" --poll-interval 0.25 \
         --shadow-log "$LOGDIR/predictions.csv" \
         --dump-snapshots "$LOGDIR/snapshots.jsonl.gz" \
-        --log-predicts "$LOGDIR/predict_log.jsonl") > "$LOGDIR/predictor.log" 2>&1 &
+        --log-predicts "$LOGDIR/predict_log.jsonl" \
+        --pin-log "$LOGDIR/pin_decisions.csv") > "$LOGDIR/predictor.log" 2>&1 &
     PREDICTOR_PID=$!
     until curl -sf "http://127.0.0.1:${PREDICTOR_PORT:-32000}/health" > /dev/null; do
         kill -0 "$PREDICTOR_PID" 2> /dev/null || { log "predictor sidecar died"; exit 1; }

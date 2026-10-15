@@ -316,6 +316,10 @@ def alloc_req_slots(
         mamba_state_needed = num_reqs * factor
         if mamba_available_size < mamba_state_needed:
             if tree_cache is not None and tree_cache.supports_mamba():
+                if tree_cache.prefix_pins is not None:
+                    # Pinned states cannot be evicted; drop pins before the
+                    # eviction below comes up short.
+                    tree_cache.prefix_pins.ensure_mamba_headroom(mamba_state_needed)
                 mamba_num = max(0, mamba_state_needed - mamba_available_size)
                 tree_cache.evict_for_alloc(
                     EvictParams(num_tokens=0, mamba_num=mamba_num)

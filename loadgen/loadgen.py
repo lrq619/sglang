@@ -413,7 +413,23 @@ async def _replay_turns(
             ctx_before, ctx_after = ctx, ctx + res.output_ids + [IM_END]
             prev_rid = rid
             if i + 1 < len(turns):
+                decision = None
+                if pin == "cost":
+                    # Decided while the tool call runs; the pin holds meanwhile.
+                    decision = asyncio.create_task(
+                        _pin_decision(
+                            http=http, predictor=predictor, arrival=arrival, rid=rid,
+                            turn=turn, next_turn=turns[i + 1],
+                            path=ctx + res.output_ids,
+                            next_ctx=_next_ctx(
+                                turn=turns[i + 1], ctx_before=ctx_before,
+                                ctx_after=ctx_after, salt=salt,
+                            ),
+                        )
+                    )
                 await _tool_wait(seconds=turn["turn_toolcall_latency_ms"] / 1000, state=state)
+                if decision is not None:
+                    await decision
         rec.sessions_done += 1
         state.update(status="done", t_end=res.t_end)
     finally:
@@ -444,6 +460,45 @@ async def _predict(
     return preds[0]["queue_mean_s"] if preds else None
 
 
+async def _pin_decision(
+    *, http: aiohttp.ClientSession, predictor: str, arrival: Arrival, rid: str,
+    turn: dict, next_turn: dict, path: list, next_ctx: list,
+) -> None:
+    """--pin-mode cost: the sidecar compares pinning this turn's prefix through
+    the tool call against releasing it, with the true tool-call latency and next
+    turn (the oracle), and unpins it itself when releasing wins."""
+    payload = {
+        "instance": arrival.endpoint,
+        "rid": rid,
+        "replica_id": arrival.replica_id,
+        "turn_id": turn["turn_index"],
+        "path_tokens": len(path),
+        "reuse_tokens": _common_prefix_len(path, next_ctx),
+        "next_input_len": len(next_ctx),
+        "next_decode_tokens": next_turn["decode_num_tokens"],
+        "toolcall_s": turn["turn_toolcall_latency_ms"] / 1000,
+    }
+    try:
+        async with http.post(f"{predictor}/pin_decision", json=payload) as resp:
+            await resp.read()
+    except (aiohttp.ClientError, asyncio.TimeoutError):
+        pass
+
+
+def _common_prefix_len(a: list, b: list) -> int:
+    lo, hi = 0, min(len(a), len(b))
+    if a[:hi] == b[:hi]:
+        return hi
+    # Invariant: a[:lo] == b[:lo] and a[:hi] != b[:hi]; slice compares run in C.
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if a[:mid] == b[:mid]:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
 async def _tool_wait(*, seconds: float, state: dict):
     t_start = time.monotonic()
     try:
@@ -463,6 +518,7 @@ def _pin_fields(*, pin: str, prev_rid: Optional[str], is_last: bool, turn: dict)
     pile up session after session (a controller that forgets to unpin)."""
     if pin == "none":
         return {}
+    # cost pins like handover; the sidecar then decides whether to release.
     fields = {"release_pin_of": prev_rid} if prev_rid is not None else {}
     if not is_last:
         fields.update(
@@ -613,12 +669,13 @@ def main():
     parser.add_argument("--progress-interval", type=float, default=30.0)
     parser.add_argument(
         "--pin-mode",
-        choices=["none", "handover", "leak"],
+        choices=["none", "handover", "leak", "cost"],
         default="none",
         help="prefix pins (server needs --enable-prefix-pin): 'handover' pins each "
         "turn through its tool call and releases it when the next turn is "
         "admitted; 'leak' also pins every session's last turn and never "
-        "releases it",
+        "releases it; 'cost' pins like handover, then asks --predictor's "
+        "/pin_decision at each turn end whether to keep the pin",
     )
     parser.add_argument(
         "--predictor",
@@ -631,7 +688,10 @@ def main():
         const="handover",
         help="shorthand for --pin-mode handover",
     )
-    asyncio.run(run(parser.parse_args()))
+    args = parser.parse_args()
+    if args.pin_mode == "cost" and not args.predictor:
+        parser.error("--pin-mode cost needs --predictor")
+    asyncio.run(run(args))
 
 
 if __name__ == "__main__":

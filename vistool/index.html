@@ -423,6 +423,7 @@ function render() {
     <details class="section" data-key="req" ${isOpen("req") ? "open" : ""}><summary>Request metrics <span class="sub">CDF over finished turns / sessions</span></summary><div class="grid" id="req"></div></details>
     <details class="section" data-key="req-time" ${isOpen("req-time") ? "open" : ""}><summary>Request metrics vs. time <span class="sub">one point per turn at its send time, per session at its first send</span></summary><div class="grid" id="req-time"></div></details>
     ${hasQueuePrediction(d.turns) ? `<details class="section" data-key="qpred" ${isOpen("qpred") ? "open" : ""}><summary>Queue prediction <span class="sub">turns with a forecast at send; relative error = (pred - actual) / actual over actual &ge; ${QPRED_MIN_ACTUAL_S}s</span></summary><div class="grid" id="qpred"></div></details>` : ""}
+    ${d.pins && d.pins.length ? `<details class="section" data-key="pins" ${isOpen("pins") ? "open" : ""}><summary>Pin decisions <span class="sub">one per finished non-last turn (--pin-mode cost); &Delta; = mean completion time with the pin minus without, &lt; 0 keeps the pin</span></summary><div class="grid" id="pins"></div></details>` : ""}
     <details class="section" data-key="srv" ${isOpen("srv") ? "open" : ""}><summary>Server metrics <span class="sub">sampled from /metrics, one line per endpoint</span></summary><div class="grid" id="srv"></div></details>`;
 
   renderProgress($("#progress"), sessions);
@@ -430,6 +431,7 @@ function render() {
   renderRequest($("#req"), sessions, d.turns);
   renderRequestTime($("#req-time"), sessions, d.turns, t0);
   if (hasQueuePrediction(d.turns)) renderQueuePrediction($("#qpred"), d.turns, t0);
+  if (d.pins && d.pins.length) renderPins($("#pins"), d.pins, d.turns, t0);
   renderServer($("#srv"), d, t0);
   main.scrollTop = scrollTop;
 }
@@ -622,6 +624,88 @@ function renderQueuePrediction(el, turns, t0) {
     ] });
   timeLineCard(el, { id: "qpred-err-time", title: `queue prediction relative error vs. turn start (actual >= ${QPRED_MIN_ACTUAL_S}s)`, fmt: fmtPct, yLabel: "relative error",
     series: [{ name: "signed", pts: queued.map((t) => [t.t_send - t0, relErr(t), label(t)]) }] });
+}
+
+// The turn after each turn of a replica, for what a pin decision actually led to.
+function nextTurns(turns) {
+  const byReplica = new Map();
+  for (const t of turns) {
+    if (t.status !== "ok") continue;
+    if (!byReplica.has(t.replica_id)) byReplica.set(t.replica_id, []);
+    byReplica.get(t.replica_id).push(t);
+  }
+  const next = new Map();
+  for (const [r, list] of byReplica) {
+    list.sort((a, b) => a.turn_id - b.turn_id);
+    for (let i = 0; i + 1 < list.length; i++) next.set(`${r}/${list[i].turn_id}`, list[i + 1]);
+  }
+  return next;
+}
+
+function renderPins(el, pins, turns, t0) {
+  const sim = pins.filter((p) => p.reason === "simulated");
+  const kept = sim.filter((p) => p.decision === "pin"), dropped = sim.filter((p) => p.decision === "nopin");
+  const label = (p) => `replica ${p.replica_id} · turn ${p.turn_id} · ${p.decision}`;
+  const at = (list, f) => list.filter((p) => p.t_unix != null && f(p) != null).sort((a, b) => a.t_unix - b.t_unix)
+    .map((p) => [p.t_unix - t0, f(p), label(p)]);
+  const fmtTok = (v) => fmtNum(v, 0);
+
+  const c = addCard(el, { id: "pins-summary", title: "decisions" });
+  const counts = {};
+  for (const p of pins) { const k = `${p.decision} (${p.reason})`; counts[k] = (counts[k] || 0) + 1; }
+  const unpin = {};
+  for (const p of pins) if (p.unpin_status) unpin[p.unpin_status] = (unpin[p.unpin_status] || 0) + 1;
+  c.chart.innerHTML = `<table class="stats"><tr><th>decision</th><th>n</th><th>share</th></tr>${Object.entries(counts).sort()
+    .map(([k, n]) => `<tr><td>${esc(k)}</td><td>${n}</td><td>${fmtPct(n / pins.length)}</td></tr>`).join("")}</table>
+    <table class="stats"><tr><th>unpin status</th><th>n</th></tr>${Object.entries(unpin).sort()
+    .map(([k, n]) => `<tr><td>${esc(k)}</td><td>${n}</td></tr>`).join("")}</table>`;
+
+  cdfCard(el, { id: "pins-ms", title: "decision latency (simulation; whole /pin_decision call)", logToggle: { axis: "x", on: true },
+    series: [
+      { name: "simulation", values: sim.map((p) => p.decide_ms / 1000) },
+      { name: "handler", values: pins.map((p) => p.handler_ms / 1000) },
+    ] });
+  timeLineCard(el, { id: "pins-delta-time", title: "\u0394 mean completion time (pin - no pin) vs. turn end", logToggle: { axis: "y", on: false },
+    series: [
+      { name: "kept (pin)", pts: at(kept, (p) => p.delta_mean_finish_s) },
+      { name: "released (no pin)", pts: at(dropped, (p) => p.delta_mean_finish_s) },
+    ] });
+  cdfCard(el, { id: "pins-delta-cdf", title: "\u0394 mean completion time (pin - no pin)", xLabel: "\u0394 mean completion",
+    series: [{ name: "all", values: sim.map((p) => p.delta_mean_finish_s) }] });
+  // Request-seconds summed over every request the simulation tracks.
+  const holdCost = (p) => (p.pin_sum_wait_s - p.pin_r_wait_s) - (p.nopin_sum_wait_s - p.nopin_r_wait_s);
+  timeLineCard(el, { id: "pins-cost-time", title: "cost components vs. turn end (summed request-seconds)", logToggle: { axis: "y", on: false },
+    series: [
+      { name: "pin: extra queueing of others", pts: at(sim, holdCost) },
+      { name: "pin: K x T (waiting x tool call)", pts: at(sim, (p) => p.kt_s) },
+      { name: "no pin: re-prefill time", pts: at(sim, (p) => p.nopin_reprefill_s) },
+      { name: "no pin: next turn's extra queueing", pts: at(sim, (p) => p.nopin_r_wait_s - p.pin_r_wait_s) },
+    ] });
+  cdfCard(el, { id: "pins-cost-cdf", title: "cost components (summed request-seconds)", logToggle: { axis: "x", on: false },
+    series: [
+      { name: "pin: extra queueing of others", values: sim.map(holdCost) },
+      { name: "pin: K x T", values: sim.map((p) => p.kt_s) },
+      { name: "no pin: re-prefill time", values: sim.map((p) => p.nopin_reprefill_s) },
+      { name: "no pin: next turn's extra queueing", values: sim.map((p) => p.nopin_r_wait_s - p.pin_r_wait_s) },
+    ] });
+
+  // What the next turn actually found cached, against what the decision assumed.
+  const next = nextTurns(turns);
+  const lost = (p) => {
+    const n = next.get(`${p.replica_id}/${p.turn_id}`);
+    return n && n.cached_tokens != null ? Math.max(0, p.reuse_tokens - n.cached_tokens) : null;
+  };
+  cdfCard(el, { id: "pins-lost", title: "reusable prefix lost by the next turn (tokens)", fmt: fmtTok, xLabel: "tokens", logToggle: { axis: "x", on: false },
+    series: [
+      { name: "released: predicted", values: dropped.map((p) => p.nopin_reprefill_tokens) },
+      { name: "released: actual", values: dropped.map(lost) },
+      { name: "kept: actual", values: kept.map(lost) },
+    ] });
+  timeLineCard(el, { id: "pins-unique-time", title: "unique KV tokens of the decided turn vs. turn end", fmt: fmtTok, yLabel: "tokens",
+    series: [
+      { name: "kept (pin)", pts: at(kept, (p) => p.unique_tokens) },
+      { name: "released (no pin)", pts: at(dropped, (p) => p.unique_tokens) },
+    ] });
 }
 
 function renderServer(el, d, t0) {

@@ -70,6 +70,21 @@ class InstanceClient:
                 return got
         return None
 
+    def last_running_entry(self, rid: str) -> Optional[dict]:
+        """The newest polled running entry of rid, if any recent poll saw it."""
+        for _, snaps in reversed(self._history):
+            for snap in snaps:
+                for r in snap["running"]:
+                    if r["rid"] == rid:
+                        return r
+        return None
+
+    async def unpin_prefix(self, rid: str) -> str:
+        async with self._http.post(
+            f"{self.url}/unpin_prefix", json={"target_rid": rid}
+        ) as resp:
+            return (await resp.json())["status"]
+
     async def match_prefix(self, input_ids: List[int]) -> Dict[int, dict]:
         """Read-only {matched_tokens, prefix_path} of input_ids per DP rank."""
         async with self._http.post(
@@ -81,6 +96,11 @@ class InstanceClient:
     @property
     def last_snapshots(self) -> List[dict]:
         return self._cache[1] if self._cache is not None else []
+
+    @property
+    def last_received(self) -> float:
+        """Local monotonic time the last snapshot arrived."""
+        return self._cache[0] if self._cache is not None else float("-inf")
 
     def prefix_ratio(self, dp_rank: int) -> float:
         recent = self._recent.get(dp_rank)

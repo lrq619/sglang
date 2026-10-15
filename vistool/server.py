@@ -38,6 +38,17 @@ TURN_LATENCY_COLUMNS = [
     "server_e2e_latency",
 ]
 TURN_RATIO_COLUMNS = ["kvc_hit_ratio"]
+TURN_COUNT_COLUMNS = ["prompt_tokens", "cached_tokens"]
+# pin_decisions.csv (queuing_predictor sidecar, --pin-mode cost): kept as rows.
+PIN_TEXT_COLUMNS = ["instance", "rid", "decision", "reason", "unpin_status"]
+PIN_NUMBER_COLUMNS = [
+    "t_unix", "replica_id", "turn_id", "toolcall_s", "path_tokens", "shared_tokens",
+    "unique_tokens", "reuse_tokens", "next_input_len", "num_running", "num_waiting",
+    "kt_s", "delta_mean_finish_s", "pin_mean_finish_s", "nopin_mean_finish_s",
+    "pin_sum_wait_s", "nopin_sum_wait_s", "pin_r_wait_s", "nopin_r_wait_s",
+    "nopin_r_prefix", "nopin_reprefill_tokens", "nopin_reprefill_s", "num_requests",
+    "num_truncated", "snapshot_age_s", "decide_ms", "handler_ms",
+]
 GAUGE_COLUMNS = [
     "num_queue_reqs",
     "num_running_reqs",
@@ -54,7 +65,7 @@ GAUGE_COLUMNS = [
     "pin_force_released_decode",
     "pin_force_released_mamba_headroom",
 ]
-RUN_FILES = ["run_info.txt", "arrivals.jsonl", "loadgen.csv", "metrics.csv"]
+RUN_FILES = ["run_info.txt", "arrivals.jsonl", "loadgen.csv", "metrics.csv", "pin_decisions.csv"]
 # A run without an "end" line whose files are all older than this was killed.
 STALE_AFTER_S = 600
 # Runs nest at most this deep under --logdir (e.g. sweep_x/r12_y).
@@ -223,6 +234,7 @@ def _load_turns(logdir: str) -> dict:
         "status": [],
         "error": [],
         **{c: [] for c in TURN_TIME_COLUMNS + TURN_LATENCY_COLUMNS + TURN_RATIO_COLUMNS},
+        **{c: [] for c in TURN_COUNT_COLUMNS},
     }
     for r in _read_csv(os.path.join(logdir, "loadgen.csv")):
         try:
@@ -240,7 +252,19 @@ def _load_turns(logdir: str) -> dict:
             cols[c].append(_float(r.get(c), 6))
         for c in TURN_RATIO_COLUMNS:
             cols[c].append(_float(r.get(c), 4))
+        for c in TURN_COUNT_COLUMNS:
+            cols[c].append(_float(r.get(c), 0))
     return cols
+
+
+def _load_pins(logdir: str) -> list:
+    """pin_decisions.csv as one dict per decision; empty when the run had none."""
+    rows = []
+    for r in _read_csv(os.path.join(logdir, "pin_decisions.csv")):
+        row = {c: r.get(c) or None for c in PIN_TEXT_COLUMNS}
+        row.update({c: _float(r.get(c), 4) for c in PIN_NUMBER_COLUMNS})
+        rows.append(row)
+    return rows
 
 
 def _load_sessions(*, arrivals: list, turns: dict, turn_counts: dict) -> list:
@@ -296,6 +320,7 @@ def load_run(logdir: str) -> dict:
         "sessions": sessions,
         "turns": turns,
         "metrics": _load_metrics(logdir),
+        "pins": _load_pins(logdir),
     }
 
 
