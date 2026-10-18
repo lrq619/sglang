@@ -1383,6 +1383,7 @@ class Scheduler(
             max_kv_fraction=mem.prefix_pin_max_kv_fraction,
             max_mamba_fraction=mem.prefix_pin_max_mamba_fraction,
             release_order=mem.prefix_pin_release_order,
+            admit_first=mem.prefix_pin_admit_first,
         )
         self.tree_cache.prefix_pins = self.prefix_pins
 
@@ -2555,6 +2556,12 @@ class Scheduler(
             ),
             peek_prefix_path_for_tokens=lambda token_ids, ranks: (
                 peek_prefix_path_for_tokens(self.tree_cache, token_ids, ranks)
+            ),
+            admits_first=(
+                self.prefix_pins.admits_first
+                if self.prefix_pins is not None
+                and get_memory().prefix_pin_admit_first
+                else None
             ),
         )
 
@@ -4078,7 +4085,12 @@ class Scheduler(
             mamba_allocator.alloc_group_begin(len(self.waiting_queue))
         buffer_pipeline = self.tree_cache.buffer_pipeline
         # Get requests from the waiting queue to a new prefill batch
-        for req in self.waiting_queue:
+        admission_order = (
+            self.prefix_pins.admission_order(self.waiting_queue)
+            if self.prefix_pins is not None
+            else self.waiting_queue
+        )
+        for req in admission_order:
             if self.enable_lora and not self.can_schedule_lora_req(req, running_loras):
                 continue
 
@@ -4153,7 +4165,15 @@ class Scheduler(
                 running_loras.add(req.lora_id)
 
             if res != AddReqResult.CONTINUE:
-                if res == AddReqResult.NO_TOKEN:
+                added = len(adder.can_run_list) > 0 and req is adder.can_run_list[-1]
+                # A pinned next turn that does not fit is passed over, not waited on.
+                pass_over = (
+                    not added
+                    and res == AddReqResult.NO_TOKEN
+                    and self.prefix_pins is not None
+                    and self.prefix_pins.admits_first(req)
+                )
+                if res == AddReqResult.NO_TOKEN and not pass_over:
                     if (
                         self.enable_hierarchical_cache
                         or self.enable_lmcache
@@ -4169,7 +4189,6 @@ class Scheduler(
                 # Only free if the slot was freshly allocated in this batch (not
                 # pre-existing from a session). Session-held slots have their own
                 # lifecycle and freeing them here causes double-free.
-                added = len(adder.can_run_list) > 0 and req is adder.can_run_list[-1]
                 if not added:
                     # init_next_round_input() may stage deferred Mamba COW/clear
                     # metadata before add_one_req() rejects the request.
@@ -4180,6 +4199,8 @@ class Scheduler(
                             req.kv.mamba_pool_idx.unsqueeze(-1)
                         )
                         req.kv.mamba_pool_idx = None
+                if pass_over:
+                    continue
                 break
 
         if mamba_allocator is not None:

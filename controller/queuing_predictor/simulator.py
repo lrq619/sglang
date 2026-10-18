@@ -57,6 +57,9 @@ class Pending(msgspec.Struct, kw_only=True, frozen=True):
     # (prefix length, eviction rank or None if never evicted), shallowest first;
     # empty when unknown, and then `prefix` is kept regardless of eviction.
     prefix_path: Tuple[Tuple[int, Optional[int]], ...] = ()
+    # Its prefix is pinned for it: with Scenario.admit_pinned_first it is tried
+    # before the rest of the queue and passed over when it does not fit.
+    pinned: bool = False
 
     @property
     def extend(self) -> int:
@@ -98,6 +101,8 @@ class Scenario(msgspec.Struct, kw_only=True, frozen=True):
     ratio: float
     ratio_min: float
     ratio_decay: float
+    # --prefix-pin-admit-first; only counterfactual.run_world models it.
+    admit_pinned_first: bool = False
 
 
 def check_supported(config: dict) -> None:
@@ -162,6 +167,7 @@ def build_scenario(
         ratio=ratio["current"],
         ratio_min=ratio["min"],
         ratio_decay=ratio["decay"],
+        admit_pinned_first=config.get("admit_pinned_first", False),
     )
 
 
@@ -179,6 +185,7 @@ def _queue(*, snap: dict, prefix_ratio: float) -> List[Pending]:
                 generated=w["output_len"],
                 max_new=w["max_new_tokens"],
                 prefix_path=_path(w.get("prefix_path")),
+                pinned=w.get("admits_first", False),
             )
         )
     # The reply carries only the head of a long queue; stand in for the rest

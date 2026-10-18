@@ -100,7 +100,9 @@ def plot_metric(
     *, series: list, metric: str, out_path: str, show_window_caps: bool, colors: list
 ):
     key, title = METRICS[metric]
-    fig, ax = plt.subplots(figsize=(8.5, 4.6), dpi=160)
+    rate_span = max(max(s[1]) for s in series) - min(min(s[1]) for s in series)
+    # Arbitrary: widen once the rate span would crowd ticks 0.25 apart.
+    fig, ax = plt.subplots(figsize=(8.5 if rate_span <= 4.5 else 11.5, 4.6), dpi=160)
     fig.patch.set_facecolor(SURFACE)
     _style_axes(ax)
 

@@ -103,6 +103,10 @@ class Memory(msgspec.Struct):
         float,
         "Upper bound on mamba states held by prefix pins, as a fraction of the mamba pool; a pin beyond it is refused.",
     ] = 0.5
+    prefix_pin_admit_first: A[
+        bool,
+        "Admit a waiting request whose prefix is still pinned for it (release_pin_of) ahead of the rest of the queue, and pass over it instead of stopping when it does not fit, so a pin is held for the tool call rather than for the queue wait.",
+    ] = False
     prefix_pin_release_order: A[
         str,
         Arg(

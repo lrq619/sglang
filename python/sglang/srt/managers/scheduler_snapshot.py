@@ -23,6 +23,8 @@ class SnapshotConfig(msgspec.Struct, kw_only=True, frozen=True):
     schedule_policy: str
     enable_mixed_chunk: bool
     enable_overlap: bool
+    # --prefix-pin-admit-first: waiting requests with admits_first go first.
+    admit_pinned_first: bool = False
     # SGLANG_CLIP_MAX_NEW_TOKENS_ESTIMATION, the cap PrefillAdder applies to
     # max_new_tokens when reserving decode headroom.
     clip_max_new_tokens: int
@@ -102,6 +104,9 @@ class WaitingReqSnapshot(msgspec.Struct, kw_only=True, frozen=True):
     # device tokens evicted before this boundary is lost]; the rank is None when it
     # cannot be evicted. Lets a reader shrink the prefix as eviction advances.
     prefix_path: Optional[List[List[Optional[int]]]] = None
+    # Its prefix is still pinned for it, so it is tried before the rest of the
+    # queue and passed over when it does not fit (--prefix-pin-admit-first).
+    admits_first: bool = False
 
 
 class FinishedReqRecord(msgspec.Struct, kw_only=True, frozen=True):

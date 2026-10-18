@@ -118,7 +118,7 @@ def decide_pin(
     pin_arrival = Arrival(
         t=t_arrive,
         req=_next_turn(ctx=next_input_len, max_new=next_decode_tokens,
-                       path=((reuse, None),)),
+                       path=((reuse, None),), pinned=True),
         decode=next_decode_tokens,
         release_on_admit=float(max(0, path_tokens - max(reuse, shared))),
     )
@@ -177,13 +177,14 @@ def decide_pin(
     )
 
 
-def _next_turn(*, ctx: int, max_new: int, path: tuple) -> Pending:
+def _next_turn(*, ctx: int, max_new: int, path: tuple, pinned: bool = False) -> Pending:
     return Pending(
         ctx=ctx,
         prefix=max((n for n, _ in path), default=0),
         generated=0,
         max_new=max_new,
         prefix_path=path,
+        pinned=pinned,
     )
 
 
@@ -239,6 +240,7 @@ def run_world(
     queue: List[Pending] = list(sc.queue)
     decodes: List[float] = [float(d) for d in queue_decode]
     arrived_at: List[float] = [0.0] * len(queue)
+    admitted: List[bool] = [False] * len(queue)
     pending = arrival
     num_requests = len(rem) + len(inflight) + len(queue) + (arrival is not None)
     r_index = len(queue) if arrival is not None else -1
@@ -259,6 +261,7 @@ def run_world(
             queue.append(pending.req)
             decodes.append(float(pending.decode))
             arrived_at.append(pending.t)
+            admitted.append(False)
             pending = None
         offset = ratio * float(np.minimum(np.maximum(max_left, 0), clip).sum())
         budget = sc.chunk
@@ -277,20 +280,20 @@ def run_world(
             if p[1] <= 0:
                 pass_reserve += min(p[4], clip)
         slots = len(rem) + len(inflight)
-        while budget > 0 and qi < len(queue) and slots < sc.max_running:
-            q = queue[qi]
-            if head_qi != qi:
-                head_qi = qi
-                head_prefix = q.surviving_prefix(max(0.0, allocated - sc.kv_available))
-            prefix = head_prefix
+
+        def try_admit(i: int, prefix: int) -> bool:
+            nonlocal free, allocated, budget, slots, pass_reserve, wait_sum
+            nonlocal r_wait, r_prefix
+            q = queue[i]
             extend = max(1, q.ctx - prefix)
             max_new_left = max(0, q.max_new - q.generated)
             if extend + min(max_new_left, clip) > free - offset - pass_reserve:
-                break
+                return False
+            admitted[i] = True
             admit.append(t)
-            wait_sum += t - arrived_at[qi]
-            if qi == r_index:
-                r_wait, r_prefix = t - arrived_at[qi], prefix
+            wait_sum += t - arrived_at[i]
+            if i == r_index:
+                r_wait, r_prefix = t - arrived_at[i], prefix
                 free += arrival.release_on_admit
             take = min(extend, budget)
             chunks.append((take, prefix))
@@ -300,11 +303,33 @@ def run_world(
             if take >= extend:
                 pass_reserve += min(max_new_left, clip)
             inflight.append(
-                [q.ctx, extend - take, prefix + take, decodes[qi], max_new_left, locked]
+                [q.ctx, extend - take, prefix + take, decodes[i], max_new_left, locked]
             )
             budget -= take
             slots += 1
-            qi += 1
+            return True
+
+        if sc.admit_pinned_first:
+            # Pinned next turns first, each passed over if it does not fit.
+            for i, q in enumerate(queue):
+                if budget <= 0 or slots >= sc.max_running:
+                    break
+                if q.pinned and not admitted[i]:
+                    try_admit(i, q.surviving_prefix(max(0.0, allocated - sc.kv_available)))
+        while budget > 0 and slots < sc.max_running:
+            while qi < len(queue) and (
+                admitted[qi] or (sc.admit_pinned_first and queue[qi].pinned)
+            ):
+                qi += 1
+            if qi >= len(queue):
+                break
+            if head_qi != qi:
+                head_qi = qi
+                head_prefix = queue[qi].surviving_prefix(
+                    max(0.0, allocated - sc.kv_available)
+                )
+            if not try_admit(qi, head_prefix):
+                break
         if chunks:
             t += costs.prefill_step(chunks)
             ctx, rem, max_left, shared, free, n = _join_prefilled(

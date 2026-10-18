@@ -18,6 +18,10 @@ No pin can block progress forever:
     it force-releases pins in ``release_order`` (see ``release_until``);
   * ``release_pin_of`` on the next turn hands the prefix over: once that request
     is admitted and holds its own lock, the pin is dropped.
+
+With ``admit_first`` the next turn also jumps the queue while its pin holds
+(``admission_order``), and is passed over rather than waited on when it does not
+fit, so a pin lasts about the tool call instead of the queue wait.
 """
 
 from __future__ import annotations
@@ -118,6 +122,7 @@ class PrefixPinRegistry:
         max_kv_fraction: float,
         max_mamba_fraction: float,
         release_order: str,
+        admit_first: bool = False,
         clock: Callable[[], float] = time.monotonic,
     ):
         assert release_order in PREFIX_PIN_RELEASE_ORDER_CHOICES, release_order
@@ -129,6 +134,7 @@ class PrefixPinRegistry:
         self._mamba_capacity = mamba_capacity
         self._mamba_free_states = mamba_free_states
         self._release_order = release_order
+        self._admit_first = admit_first
         self._clock = clock
 
         self._pins: dict[str, PinEntry] = {}
@@ -164,6 +170,25 @@ class PrefixPinRegistry:
     @property
     def num_force_released(self) -> int:
         return sum(self.force_released.values())
+
+    def admits_first(self, req: Req) -> bool:
+        """Whether req jumps the queue: its prefix is still pinned for it, so
+        admitting it costs only its new tokens and hands the pin over."""
+        return (
+            self._admit_first
+            and req.release_pin_of is not None
+            and req.release_pin_of in self._pins
+        )
+
+    def admission_order(self, waiting_queue: list) -> list:
+        """The waiting queue as the scheduler should try it: requests that
+        admits_first, then the rest, each in queue order."""
+        if not self._admit_first or not self._pins:
+            return waiting_queue
+        first = [r for r in waiting_queue if self.admits_first(r)]
+        if not first:
+            return waiting_queue
+        return first + [r for r in waiting_queue if not self.admits_first(r)]
 
     def snapshot(self) -> list[dict]:
         now = self._clock()

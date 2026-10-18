@@ -126,6 +126,7 @@ class SchedulerSnapshotInquirer:
         get_shared_locked_tokens: Callable[[Any], Optional[int]],
         peek_prefix_path_for_req: Callable[[Req, Optional[dict]], Optional[list]],
         peek_prefix_path_for_tokens: Callable[[array, Optional[dict]], Optional[list]],
+        admits_first: Optional[Callable[[Req], bool]] = None,
         clip_max_new_tokens: int = CLIP_MAX_NEW_TOKENS,
     ):
         # None without DP.
@@ -153,6 +154,8 @@ class SchedulerSnapshotInquirer:
         self.get_shared_locked_tokens = get_shared_locked_tokens
         self.peek_prefix_path_for_req = peek_prefix_path_for_req
         self.peek_prefix_path_for_tokens = peek_prefix_path_for_tokens
+        # None unless --prefix-pin-admit-first is on.
+        self.admits_first = admits_first
         self.finished_ring = FinishedReqRing()
 
     def handle(self, req: GetSchedulerSnapshotReq) -> GetSchedulerSnapshotReqOutput:
@@ -199,6 +202,7 @@ class SchedulerSnapshotInquirer:
             _waiting(
                 req,
                 prefix_path=self.peek_prefix_path_for_req(req, ranks),
+                admits_first=self.admits_first is not None and self.admits_first(req),
                 now_perf=now_perf,
             )
             for req in head
@@ -236,6 +240,7 @@ class SchedulerSnapshotInquirer:
             schedule_policy=self.schedule_policy,
             enable_mixed_chunk=self.enable_mixed_chunk,
             enable_overlap=self.enable_overlap,
+            admit_pinned_first=self.admits_first is not None,
             clip_max_new_tokens=self.clip_max_new_tokens,
         )
 
@@ -361,7 +366,7 @@ def _path_len(path: Optional[list]) -> Optional[int]:
 
 
 def _waiting(
-    req: Req, *, prefix_path: Optional[list], now_perf: float
+    req: Req, *, prefix_path: Optional[list], admits_first: bool, now_perf: float
 ) -> WaitingReqSnapshot:
     return WaitingReqSnapshot(
         rid=req.rid,
@@ -372,4 +377,5 @@ def _waiting(
         prefix_path=prefix_path,
         wait_queue_entry_age_s=_age(req.time_stats.wait_queue_entry_time, now_perf),
         is_retracted=req.is_retracted,
+        admits_first=admits_first,
     )
