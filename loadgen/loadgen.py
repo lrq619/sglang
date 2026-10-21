@@ -47,9 +47,6 @@ CSV_COLUMNS = [
     "t_end",
     "turn_e2e_latency",
     "turn_queuing_latency",
-    # Queue time the predictor sidecar forecast at send (--predictor); empty if
-    # its decode-length pool was not ready yet.
-    "turn_predicted_queuing_latency",
     "turn_prefill_latency",
     "turn_decode_latency",
     "turn_toolcall_latency",
@@ -60,6 +57,10 @@ CSV_COLUMNS = [
     "input_len",
     "prompt_tokens",
     "cached_tokens",
+    # cached_tokens split by where the prefix was at admission: device (GPU), or
+    # host (HiCache, loaded back from CPU); they sum to cached_tokens.
+    "cached_tokens_device",
+    "cached_tokens_host",
     "completion_tokens",
     "expected_decode_tokens",
     "fidelity_ok",
@@ -108,6 +109,36 @@ def _load_corpus(path: str) -> dict:
     with open(path) as f:
         sessions = [json.loads(line) for line in f if line.strip()]
     return {s["session_id"]: s for s in sessions}
+
+
+def _bucket_mid_ms(letter: str) -> float:
+    """Geometric midpoint of a tool-latency bucket (A <0.1s, then [100*2^k, 100*2^(k+1)) ms)."""
+    return 100.0 * 2 ** ("ABCDEFGHIJKLM".index(letter) - 1) * 2**0.5
+
+
+def _attach_decision_toolcall(*, corpus: dict, pred_path: Optional[str]) -> None:
+    """Set turn["decision_toolcall_ms"], the tool latency pin decisions see: the
+    true one, or the midpoint of the predicted bucket from --toolcall-pred.
+    The replay itself always waits the true latency."""
+    preds = {}
+    if pred_path is not None:
+        with open(pred_path) as f:
+            for r in csv.DictReader(f):
+                preds[(r["session_id"], int(r["turn_id"]))] = _bucket_mid_ms(r["predicted_bucket"])
+    missing = 0
+    for sid, s in corpus.items():
+        for t in s["turns"]:
+            true_ms = t["turn_toolcall_latency_ms"]
+            if pred_path is None or true_ms is None:
+                t["decision_toolcall_ms"] = true_ms
+            elif (sid, t["turn_index"]) in preds:
+                t["decision_toolcall_ms"] = preds[(sid, t["turn_index"])]
+            else:
+                missing += 1
+                t["decision_toolcall_ms"] = true_ms
+    if pred_path is not None:
+        print(f"--toolcall-pred {pred_path}: {len(preds)} predictions, "
+              f"{missing} turns fall back to the true latency")
 
 
 def _load_arrivals(*, path: str, corpus: dict, endpoints: list) -> list:
@@ -194,6 +225,19 @@ def _span(meta: dict, start: str, end: str) -> Optional[float]:
     return None
 
 
+def _cached_split(*, meta: dict, cached: int) -> dict:
+    """cached_tokens_details is None when nothing was cached; both columns stay
+    empty for a server that does not report the split."""
+    details = meta.get("cached_tokens_details")
+    if details:
+        device, host = details.get("device", 0), details.get("host", 0)
+    elif cached == 0:
+        device, host = 0, 0
+    else:
+        device, host = None, None
+    return {"cached_tokens_device": device, "cached_tokens_host": host}
+
+
 def _turn_row(
     *, arrival: Arrival, turn: dict, input_len: int, res: TurnResult
 ) -> dict:
@@ -222,6 +266,7 @@ def _turn_row(
         "input_len": input_len,
         "prompt_tokens": prompt_tokens,
         "cached_tokens": cached,
+        **_cached_split(meta=meta, cached=cached),
         "completion_tokens": completion,
         "expected_decode_tokens": expected,
         "fidelity_ok": int(prompt_tokens == input_len and completion == expected),
@@ -370,13 +415,6 @@ async def _replay_turns(
             )
             rid = f"r{arrival.replica_id}-t{turn['turn_index']}-{os.getpid()}"
             rec.requests_inflight += 1
-            # Runs alongside the request so the forecast never delays the send.
-            prediction = asyncio.create_task(
-                _predict(
-                    http=http, predictor=predictor, endpoint=arrival.endpoint, rid=rid,
-                    ctx=ctx, max_new=turn["decode_num_tokens"], t_send=time.time(),
-                )
-            )
             try:
                 res = await _generate(
                     http=http,
@@ -389,7 +427,6 @@ async def _replay_turns(
                     ),
                 )
             except Exception as e:
-                prediction.cancel()
                 # The context cannot be continued without this turn's output.
                 rec.write(_error_row(arrival=arrival, turn=turn, input_len=len(ctx), err=e))
                 rec.sessions_failed += 1
@@ -401,12 +438,6 @@ async def _replay_turns(
             finally:
                 rec.requests_inflight -= 1
             row = _turn_row(arrival=arrival, turn=turn, input_len=len(ctx), res=res)
-            try:
-                row["turn_predicted_queuing_latency"] = await asyncio.wait_for(
-                    prediction, timeout=5
-                )
-            except asyncio.TimeoutError:
-                pass
             rec.write(row)
             if res.t_end <= rec.deadline:
                 state["turns_done"] += 1
@@ -436,30 +467,6 @@ async def _replay_turns(
         rec.sessions_active -= 1
 
 
-async def _predict(
-    *, http: aiohttp.ClientSession, predictor: Optional[str], endpoint: str, rid: str,
-    ctx: list, max_new: int, t_send: float,
-) -> Optional[float]:
-    """Mean predicted queue time from the predictor sidecar; None on any failure,
-    so a missing or cold predictor never affects the replay."""
-    if predictor is None:
-        return None
-    payload = {
-        "rid": rid,
-        "instances": [endpoint],
-        "input_ids": ctx,
-        "max_new_tokens": max_new,
-        "t_send_unix": t_send,
-    }
-    try:
-        async with http.post(f"{predictor}/predict", json=payload) as resp:
-            body = await resp.json()
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
-        return None
-    preds = [p for p in body.get("predictions", []) if "queue_mean_s" in p]
-    return preds[0]["queue_mean_s"] if preds else None
-
-
 async def _pin_decision(
     *, http: aiohttp.ClientSession, predictor: str, arrival: Arrival, rid: str,
     turn: dict, next_turn: dict, path: list, next_ctx: list,
@@ -476,7 +483,7 @@ async def _pin_decision(
         "reuse_tokens": _common_prefix_len(path, next_ctx),
         "next_input_len": len(next_ctx),
         "next_decode_tokens": next_turn["decode_num_tokens"],
-        "toolcall_s": turn["turn_toolcall_latency_ms"] / 1000,
+        "toolcall_s": turn["decision_toolcall_ms"] / 1000,
     }
     try:
         async with http.post(f"{predictor}/pin_decision", json=payload) as resp:
@@ -523,7 +530,7 @@ def _pin_fields(*, pin: str, prev_rid: Optional[str], is_last: bool, turn: dict)
     if not is_last:
         fields.update(
             pin_on_finish=True,
-            pin_expected_return_s=turn["turn_toolcall_latency_ms"] / 1000,
+            pin_expected_return_s=turn["decision_toolcall_ms"] / 1000,
         )
     elif pin == "leak":
         fields.update(pin_on_finish=True)
@@ -563,7 +570,8 @@ async def _report_progress(*, rec: Recorder, total: int, t0: float, interval: fl
 async def run(args):
     endpoints = [e.strip().rstrip("/") for e in args.endpoints.split(",") if e.strip()]
     corpus = _load_corpus(args.corpus)
-    arrivals = _load_arrivals(path=args.arrivals, corpus=corpus, endpoints=endpoints)
+    _attach_decision_toolcall(corpus=corpus, pred_path=args.toolcall_pred)
+    arrivals =_load_arrivals(path=args.arrivals, corpus=corpus, endpoints=endpoints)
     print(
         f"{len(arrivals)} arrivals of {len(corpus)} trajectories over "
         f"{arrivals[-1].arrival_offset / 60:.1f} min -> {len(endpoints)} endpoints"
@@ -679,7 +687,14 @@ def main():
     )
     parser.add_argument(
         "--predictor",
-        help="queueing predictor sidecar URL; logs turn_predicted_queuing_latency",
+        help="predictor sidecar URL, which --pin-mode cost asks for pin decisions",
+    )
+    parser.add_argument(
+        "--toolcall-pred",
+        default=None,
+        help="CSV (session_id, turn_id, predicted_bucket) whose bucket midpoints "
+        "replace the true tool latency in pin decisions and pin_expected_return_s "
+        "(default: the true latency, i.e. the oracle)",
     )
     parser.add_argument(
         "--pin",

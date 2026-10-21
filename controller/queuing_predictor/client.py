@@ -79,6 +79,12 @@ class InstanceClient:
                         return r
         return None
 
+    async def metrics_text(self) -> str:
+        """Prometheus text of the instance's /metrics."""
+        async with self._http.get(f"{self.url}/metrics") as resp:
+            resp.raise_for_status()
+            return await resp.text()
+
     async def unpin_prefix(self, rid: str) -> str:
         async with self._http.post(
             f"{self.url}/unpin_prefix", json={"target_rid": rid}

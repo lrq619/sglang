@@ -127,6 +127,12 @@ class SchedulerSnapshotInquirer:
         peek_prefix_path_for_req: Callable[[Req, Optional[dict]], Optional[list]],
         peek_prefix_path_for_tokens: Callable[[array, Optional[dict]], Optional[list]],
         admits_first: Optional[Callable[[Req], bool]] = None,
+        peek_cached_prefix_len_for_req: Optional[Callable[[Req], Optional[int]]] = None,
+        enable_hierarchical_cache: bool = False,
+        get_host_pool_usage: Optional[
+            Callable[[], Optional[dict[str, tuple[int, int]]]]
+        ] = None,
+        get_lifetimes: Optional[Callable[[], list]] = None,
         clip_max_new_tokens: int = CLIP_MAX_NEW_TOKENS,
     ):
         # None without DP.
@@ -156,6 +162,13 @@ class SchedulerSnapshotInquirer:
         self.peek_prefix_path_for_tokens = peek_prefix_path_for_tokens
         # None unless --prefix-pin-admit-first is on.
         self.admits_first = admits_first
+        # None without HiCache.
+        self.peek_cached_prefix_len_for_req = peek_cached_prefix_len_for_req
+        self.enable_hierarchical_cache = enable_hierarchical_cache
+        # None without HiCache.
+        self.get_host_pool_usage = get_host_pool_usage
+        # None without prefix pins.
+        self.get_lifetimes = get_lifetimes
         self.finished_ring = FinishedReqRing()
 
     def handle(self, req: GetSchedulerSnapshotReq) -> GetSchedulerSnapshotReqOutput:
@@ -203,6 +216,11 @@ class SchedulerSnapshotInquirer:
                 req,
                 prefix_path=self.peek_prefix_path_for_req(req, ranks),
                 admits_first=self.admits_first is not None and self.admits_first(req),
+                cached_prefix_len=(
+                    self.peek_cached_prefix_len_for_req(req)
+                    if self.peek_cached_prefix_len_for_req is not None
+                    else None
+                ),
                 now_perf=now_perf,
             )
             for req in head
@@ -228,6 +246,7 @@ class SchedulerSnapshotInquirer:
             finished_seq_head=self.finished_ring.seq_head,
             finished_seq_tail=self.finished_ring.seq_tail,
             finished=self._finished(finished_since=finished_since, now_mono=now_mono),
+            lifetimes=self.get_lifetimes() if self.get_lifetimes is not None else [],
             build_ms=(time.perf_counter() - now_perf) * 1e3,
         )
 
@@ -241,6 +260,7 @@ class SchedulerSnapshotInquirer:
             enable_mixed_chunk=self.enable_mixed_chunk,
             enable_overlap=self.enable_overlap,
             admit_pinned_first=self.admits_first is not None,
+            enable_hierarchical_cache=self.enable_hierarchical_cache,
             clip_max_new_tokens=self.clip_max_new_tokens,
         )
 
@@ -255,6 +275,11 @@ class SchedulerSnapshotInquirer:
 
     def _memory(self) -> MemorySnapshot:
         stats = self.pool_stats_observer.get_pool_stats()
+        host = (
+            self.get_host_pool_usage() if self.get_host_pool_usage is not None else None
+        ) or {}
+        host_kv = host.get("kv", (None, None))
+        host_mamba = host.get("mamba", (None, None))
         return MemorySnapshot(
             kv_available=int(stats.full_available_size),
             kv_evictable=int(stats.full_evictable_size),
@@ -262,6 +287,10 @@ class SchedulerSnapshotInquirer:
             mamba_available=stats.mamba_available_size,
             mamba_evictable=stats.mamba_evictable_size,
             mamba_used=stats.mamba_num_used,
+            host_kv_available=host_kv[0],
+            host_kv_total=host_kv[1],
+            host_mamba_available=host_mamba[0],
+            host_mamba_total=host_mamba[1],
         )
 
     def _step(
@@ -366,7 +395,12 @@ def _path_len(path: Optional[list]) -> Optional[int]:
 
 
 def _waiting(
-    req: Req, *, prefix_path: Optional[list], admits_first: bool, now_perf: float
+    req: Req,
+    *,
+    prefix_path: Optional[list],
+    admits_first: bool,
+    cached_prefix_len: Optional[int],
+    now_perf: float,
 ) -> WaitingReqSnapshot:
     return WaitingReqSnapshot(
         rid=req.rid,
@@ -378,4 +412,5 @@ def _waiting(
         wait_queue_entry_age_s=_age(req.time_stats.wait_queue_entry_time, now_perf),
         is_retracted=req.is_retracted,
         admits_first=admits_first,
+        cached_prefix_len=cached_prefix_len,
     )

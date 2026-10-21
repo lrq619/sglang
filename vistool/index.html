@@ -189,9 +189,6 @@ const LAT_COMPONENTS = [
   ["turn_toolcall_latency", "toolcall"],
   ["server_e2e_latency", "server e2e"],
 ];
-// Relative error of the queue prediction is only shown where the actual wait is at
-// least this long; it diverges as the actual wait goes to 0.
-const QPRED_MIN_ACTUAL_S = 1;
 const FETCH_TIMEOUT_MS = 20000;
 const RELOAD_INTERVAL_MS = 10000;
 // cache: run name -> {etag, data}, so a 304 or a failed reload keeps the last good data.
@@ -422,7 +419,7 @@ function render() {
     <details class="section" data-key="progress" ${isOpen("progress") ? "open" : ""}><summary>Session progress <span class="sub">one bar per session, bottom = first turn</span></summary><div id="progress"></div></details>
     <details class="section" data-key="req" ${isOpen("req") ? "open" : ""}><summary>Request metrics <span class="sub">CDF over finished turns / sessions</span></summary><div class="grid" id="req"></div></details>
     <details class="section" data-key="req-time" ${isOpen("req-time") ? "open" : ""}><summary>Request metrics vs. time <span class="sub">one point per turn at its send time, per session at its first send</span></summary><div class="grid" id="req-time"></div></details>
-    ${hasQueuePrediction(d.turns) ? `<details class="section" data-key="qpred" ${isOpen("qpred") ? "open" : ""}><summary>Queue prediction <span class="sub">turns with a forecast at send; relative error = (pred - actual) / actual over actual &ge; ${QPRED_MIN_ACTUAL_S}s</span></summary><div class="grid" id="qpred"></div></details>` : ""}
+    ${d.lifetimes && d.lifetimes.length ? `<details class="section" data-key="life" ${isOpen("life") ? "open" : ""}><summary>KV lifetime <span class="sub">unpinned turns: predicted vs measured time the path stayed on device / on host; a next turn admitted first only bounds the lifetime from below</span></summary><div class="grid" id="life"></div></details>` : ""}
     ${d.pins && d.pins.length ? `<details class="section" data-key="pins" ${isOpen("pins") ? "open" : ""}><summary>Pin decisions <span class="sub">one per finished non-last turn (--pin-mode cost); &Delta; = mean completion time with the pin minus without, &lt; 0 keeps the pin</span></summary><div class="grid" id="pins"></div></details>` : ""}
     <details class="section" data-key="srv" ${isOpen("srv") ? "open" : ""}><summary>Server metrics <span class="sub">sampled from /metrics, one line per endpoint</span></summary><div class="grid" id="srv"></div></details>`;
 
@@ -430,7 +427,7 @@ function render() {
   const t0 = runStartTime(d);
   renderRequest($("#req"), sessions, d.turns);
   renderRequestTime($("#req-time"), sessions, d.turns, t0);
-  if (hasQueuePrediction(d.turns)) renderQueuePrediction($("#qpred"), d.turns, t0);
+  if (d.lifetimes && d.lifetimes.length) renderLifetimes($("#life"), d.lifetimes, t0);
   if (d.pins && d.pins.length) renderPins($("#pins"), d.pins, d.turns, t0);
   renderServer($("#srv"), d, t0);
   main.scrollTop = scrollTop;
@@ -479,6 +476,7 @@ function renderProgress(el, sessions) {
           html += `<div class="r">status<b>${esc(t.status)}</b></div><div class="r">e2e<b>${fmtSec(t.turn_e2e_latency)}</b></div>
             <div class="r">queuing<b>${fmtSec(t.turn_queuing_latency)}</b></div><div class="r">prefill<b>${fmtSec(t.turn_prefill_latency)}</b></div>
             <div class="r">decode<b>${fmtSec(t.turn_decode_latency)}</b></div><div class="r">kvc hit<b>${fmtPct(t.kvc_hit_ratio)}</b></div>
+            ${hitPart(t, "cached_tokens_host") != null ? `<div class="r">&nbsp;&nbsp;GPU / CPU<b>${fmtPct(hitPart(t, "cached_tokens_device"))} / ${fmtPct(hitPart(t, "cached_tokens_host"))}</b></div>` : ""}
             ${t.error ? `<div class="r">error<b>${esc(t.error.slice(0, 60))}</b></div>` : ""}`;
         } else html += `<div class="r">not done</div>`;
       }
@@ -536,8 +534,38 @@ function renderRequest(el, sessions, turns) {
     series: [{ name: "turn e2e", values: ok.map((t) => t.turn_e2e_latency) }] });
   cdfCard(el, { id: "cdf-components", title: "turn latency breakdown", logToggle: { axis: "x", on: true },
     series: LAT_COMPONENTS.map(([k, name]) => ({ name, values: ok.map((t) => t[k]) })) });
-  cdfCard(el, { id: "cdf-kvc-hit", title: "kvc_hit_ratio", fmt: fmtPct, xLabel: "KV cache hit ratio", xMax: 1,
-    series: [{ name: "kvc hit ratio", values: ok.map((t) => t.kvc_hit_ratio) }] });
+  cdfCard(el, { id: "cdf-kvc-hit", title: "kvc_hit_ratio (total = GPU + CPU)", fmt: fmtPct, xLabel: "KV cache hit ratio", xMax: 1,
+    series: hitSeries(ok, (f) => ({ values: ok.map(f) })) });
+}
+
+// Share of a turn's prompt cached in one tier: cached_tokens_device (GPU) or
+// cached_tokens_host (CPU, HiCache); null in runs that predate the split.
+function hitPart(t, key) {
+  return t[key] != null && t.prompt_tokens ? t[key] / t.prompt_tokens : null;
+}
+
+// Total kvc hit ratio, plus its GPU and CPU parts when the run recorded them.
+function hitSeries(turns, make) {
+  const out = [{ name: "total", ...make((t) => t.kvc_hit_ratio) }];
+  if (turns.some((t) => t.cached_tokens_host != null)) {
+    out.push({ name: "GPU", ...make((t) => hitPart(t, "cached_tokens_device")) });
+    out.push({ name: "CPU (HiCache)", ...make((t) => hitPart(t, "cached_tokens_host")) });
+  }
+  return out;
+}
+
+// Token-weighted hit ratio per window of turn sends: sum(cached) / sum(prompt).
+function hitPerWindow(ok, t0, key, windowS) {
+  const bins = new Map();
+  for (const t of ok) {
+    if (!t.prompt_tokens || t[key] == null) continue;
+    const b = Math.floor((t.t_send - t0) / windowS);
+    const v = bins.get(b) || [0, 0, 0];
+    v[0] += t[key]; v[1] += t.prompt_tokens; v[2] += 1;
+    bins.set(b, v);
+  }
+  return [...bins.entries()].sort((a, b) => a[0] - b[0])
+    .map(([b, [c, p, n]]) => [(b + 0.5) * windowS, c / p, `${n} turns`]);
 }
 
 // Common time origin for every vs.-time chart, so request and server charts line up.
@@ -591,39 +619,61 @@ function renderRequestTime(el, sessions, turns, t0) {
     series: [{ name: "turn e2e", pts: turnPts("turn_e2e_latency") }] });
   timeLineCard(el, { id: "time-components", title: "turn latency breakdown vs. turn start", logToggle: { axis: "y", on: true },
     series: LAT_COMPONENTS.map(([k, name]) => ({ name, pts: turnPts(k) })) });
-  timeLineCard(el, { id: "time-kvc-hit", title: "kvc_hit_ratio vs. turn start", fmt: fmtPct, yLabel: "KV cache hit ratio", yMax: 1,
-    series: [{ name: "kvc hit ratio", pts: turnPts("kvc_hit_ratio") }] });
+  timeLineCard(el, { id: "time-kvc-hit", title: "kvc_hit_ratio vs. turn start (total = GPU + CPU)", fmt: fmtPct, yLabel: "KV cache hit ratio", yMax: 1,
+    series: hitSeries(ok, (f) => ({ pts: ok.map((t) => [t.t_send - t0, f(t), `replica ${t.replica_id} · turn ${t.turn_id}`]) })) });
+  const split = ok.some((t) => t.cached_tokens_host != null);
+  timeLineCard(el, { id: "time-kvc-hit-weighted", title: "kvc hit ratio per minute, token-weighted (sum cached / sum prompt)", fmt: fmtPct, yLabel: "KV cache hit ratio", yMax: 1,
+    series: [
+      { name: "total", pts: hitPerWindow(ok, t0, "cached_tokens", 60) },
+      ...(split ? [
+        { name: "GPU", pts: hitPerWindow(ok, t0, "cached_tokens_device", 60) },
+        { name: "CPU (HiCache)", pts: hitPerWindow(ok, t0, "cached_tokens_host", 60) },
+      ] : []),
+    ] });
 }
 
-function hasQueuePrediction(turns) {
-  return turns.some((t) => t.turn_predicted_queuing_latency != null);
-}
+const OUTCOMES = ["device", "host", "lost"];
 
-function renderQueuePrediction(el, turns, t0) {
-  const ok = turns
-    .filter((t) => t.status === "ok" && t.t_send != null && t.turn_queuing_latency != null && t.turn_predicted_queuing_latency != null)
-    .sort((a, b) => a.t_send - b.t_send);
-  const label = (t) => `replica ${t.replica_id} · turn ${t.turn_id}`;
-  const pts = (key) => ok.map((t) => [t.t_send - t0, t[key], label(t)]);
-  cdfCard(el, { id: "qpred-cdf", title: "turn_queuing_latency and turn_predicted_queuing_latency", logToggle: { axis: "x", on: true },
+function renderLifetimes(el, rows, t0) {
+  const label = (r) => `replica ${r.replica_id} · turn ${r.turn_id}`;
+  const c = addCard(el, { id: "life-outcomes", title: "where the next turn found the unpinned path: predicted (rows) vs measured (columns)" });
+  const count = (p, a) => rows.filter((r) => r.predicted_outcome === p && r.actual_outcome === a).length;
+  const cols = [...OUTCOMES, "unknown"];
+  c.chart.innerHTML = `<table class="stats"><tr><th>predicted \\ measured</th>${cols.map((a) => `<th>${a}</th>`).join("")}<th>n</th></tr>${OUTCOMES
+    .map((p) => `<tr><td>${p}</td>${cols.map((a) => `<td>${count(p, a)}</td>`).join("")}<td>${rows.filter((r) => r.predicted_outcome === p).length}</td></tr>`).join("")}</table>
+    <div class="sub">${rows.filter((r) => r.predicted_outcome === r.actual_outcome).length} of ${rows.length} predicted outcomes match (${fmtPct(rows.filter((r) => r.predicted_outcome === r.actual_outcome).length / rows.length)})</div>`;
+
+  const measured = (key) => rows.filter((r) => r[key] != null);
+  cdfCard(el, { id: "life-device-cdf", title: "device lifetime: predicted vs measured (evicted before the next turn)", logToggle: { axis: "x", on: true },
     series: [
-      { name: "actual", values: ok.map((t) => t.turn_queuing_latency) },
-      { name: "predicted", values: ok.map((t) => t.turn_predicted_queuing_latency) },
+      { name: "predicted", values: measured("device_lifetime_s").map((r) => r.predicted_device_s) },
+      { name: "measured", values: measured("device_lifetime_s").map((r) => r.device_lifetime_s) },
     ] });
-  timeLineCard(el, { id: "qpred-time", title: "turn_queuing_latency and turn_predicted_queuing_latency vs. turn start", logToggle: { axis: "y", on: false },
+  cdfCard(el, { id: "life-host-cdf", title: "host lifetime: predicted vs measured (gone from host before the next turn)", logToggle: { axis: "x", on: true },
     series: [
-      { name: "actual", pts: pts("turn_queuing_latency") },
-      { name: "predicted", pts: pts("turn_predicted_queuing_latency") },
+      { name: "predicted", values: measured("host_lifetime_s").map((r) => r.predicted_host_s) },
+      { name: "measured", values: measured("host_lifetime_s").map((r) => r.host_lifetime_s) },
     ] });
-  const queued = ok.filter((t) => t.turn_queuing_latency >= QPRED_MIN_ACTUAL_S);
-  const relErr = (t) => (t.turn_predicted_queuing_latency - t.turn_queuing_latency) / t.turn_queuing_latency;
-  cdfCard(el, { id: "qpred-err-cdf", title: `queue prediction relative error (actual >= ${QPRED_MIN_ACTUAL_S}s)`, fmt: fmtPct, xLabel: "relative error",
+  const at = (list, f) => list.filter((r) => r.decided_unix != null && f(r) != null).sort((a, b) => a.decided_unix - b.decided_unix)
+    .map((r) => [r.decided_unix - t0, f(r), label(r)]);
+  timeLineCard(el, { id: "life-device-time", title: "device lifetime vs. unpin time", logToggle: { axis: "y", on: true },
     series: [
-      { name: "signed", values: queued.map(relErr) },
-      { name: "absolute", values: queued.map((t) => Math.abs(relErr(t))) },
+      { name: "predicted", pts: at(rows, (r) => r.predicted_device_s) },
+      { name: "measured", pts: at(rows, (r) => r.device_lifetime_s) },
+      { name: "lower bound (next turn admitted first)", pts: at(rows.filter((r) => r.device_lifetime_s == null), (r) => r.admitted_after_s) },
     ] });
-  timeLineCard(el, { id: "qpred-err-time", title: `queue prediction relative error vs. turn start (actual >= ${QPRED_MIN_ACTUAL_S}s)`, fmt: fmtPct, yLabel: "relative error",
-    series: [{ name: "signed", pts: queued.map((t) => [t.t_send - t0, relErr(t), label(t)]) }] });
+  timeLineCard(el, { id: "life-host-time", title: "host lifetime vs. unpin time", logToggle: { axis: "y", on: true },
+    series: [
+      { name: "predicted", pts: at(rows, (r) => r.predicted_host_s) },
+      { name: "measured", pts: at(rows, (r) => r.host_lifetime_s) },
+      { name: "lower bound (next turn admitted first)", pts: at(rows.filter((r) => r.host_lifetime_s == null), (r) => r.admitted_after_s) },
+    ] });
+  const relErr = (key, pkey) => measured(key).map((r) => (r[pkey] - r[key]) / r[key]);
+  cdfCard(el, { id: "life-err", title: "lifetime relative error (predicted - measured) / measured", fmt: fmtPct, xLabel: "relative error",
+    series: [
+      { name: "device", values: relErr("device_lifetime_s", "predicted_device_s") },
+      { name: "host", values: relErr("host_lifetime_s", "predicted_host_s") },
+    ] });
 }
 
 // The turn after each turn of a replica, for what a pin decision actually led to.
@@ -643,6 +693,7 @@ function nextTurns(turns) {
 }
 
 function renderPins(el, pins, turns, t0) {
+  if (pins.some((p) => p.reason === "lifetime")) return renderLifetimePins(el, pins, t0);
   const sim = pins.filter((p) => p.reason === "simulated");
   const kept = sim.filter((p) => p.decision === "pin"), dropped = sim.filter((p) => p.decision === "nopin");
   const label = (p) => `replica ${p.replica_id} · turn ${p.turn_id} · ${p.decision}`;
@@ -708,6 +759,46 @@ function renderPins(el, pins, turns, t0) {
     ] });
 }
 
+// Decisions of the lifetime-based oracle: pin when holding the path idle costs
+// less than what the next turn would pay without it (reload or re-prefill).
+function renderLifetimePins(el, pins, t0) {
+  const dec = pins.filter((p) => p.reason === "lifetime");
+  const label = (p) => `replica ${p.replica_id} · turn ${p.turn_id} · ${p.decision} · ${p.nopin_outcome}`;
+  const c = addCard(el, { id: "pins-summary", title: "decisions, by the predicted outcome without a pin" });
+  const n = (f) => dec.filter(f).length;
+  c.chart.innerHTML = `<table class="stats"><tr><th>without a pin</th><th>pin</th><th>no pin</th></tr>${OUTCOMES
+    .map((o) => `<tr><td>${o}</td><td>${n((p) => p.nopin_outcome === o && p.decision === "pin")}</td><td>${n((p) => p.nopin_outcome === o && p.decision === "nopin")}</td></tr>`).join("")}
+    <tr><td>other (${[...new Set(pins.filter((p) => p.reason !== "lifetime").map((p) => p.reason))].join(", ") || "-"})</td><td>${pins.filter((p) => p.reason !== "lifetime" && p.decision === "pin").length}</td><td>${pins.filter((p) => p.reason !== "lifetime" && p.decision === "nopin").length}</td></tr></table>`;
+  const at = (list, f) => list.filter((p) => p.t_unix != null && f(p) != null).sort((a, b) => a.t_unix - b.t_unix)
+    .map((p) => [p.t_unix - t0, f(p), label(p)]);
+  timeLineCard(el, { id: "pins-share-time", title: "share of turns pinned, per minute", fmt: fmtPct, yLabel: "pinned share", yMax: 1,
+    series: [{ name: "pinned", pts: perWindowShare(dec, t0, 60) }] });
+  timeLineCard(el, { id: "pins-cost-time", title: "pin vs no-pin cost vs. turn end (summed request-seconds)", logToggle: { axis: "y", on: true },
+    series: [
+      { name: "pin: idle memory", pts: at(dec, (p) => p.cost_pin) },
+      { name: "no pin: reload or re-prefill", pts: at(dec, (p) => p.cost_nopin) },
+    ] });
+  cdfCard(el, { id: "pins-hold-cdf", title: "hold time: pinned (tool call) vs unpinned (tool call + queue)", logToggle: { axis: "x", on: true },
+    series: [
+      { name: "pinned", values: dec.filter((p) => p.decision === "pin").map((p) => p.hold_pin_s) },
+      { name: "unpinned", values: dec.filter((p) => p.decision === "nopin").map((p) => p.hold_nopin_s) },
+    ] });
+  cdfCard(el, { id: "pins-ms", title: "decision latency (whole /pin_decision call)", logToggle: { axis: "x", on: true },
+    series: [{ name: "handler", values: pins.map((p) => p.handler_ms / 1000) }] });
+}
+
+function perWindowShare(dec, t0, windowS) {
+  const bins = new Map();
+  for (const p of dec) {
+    if (p.t_unix == null) continue;
+    const b = Math.floor((p.t_unix - t0) / windowS);
+    const v = bins.get(b) || [0, 0];
+    v[0] += p.decision === "pin" ? 1 : 0; v[1] += 1;
+    bins.set(b, v);
+  }
+  return [...bins.entries()].sort((a, b) => a[0] - b[0]).map(([b, [k, m]]) => [(b + 0.5) * windowS, k / m, `${m} decisions`]);
+}
+
 function renderServer(el, d, t0) {
   const eps = Object.keys(d.metrics).sort();
   if (!eps.length || !eps.some((ep) => d.metrics[ep].t.length)) { el.innerHTML = `<div class="empty">no metrics.csv samples in this run</div>`; return; }
@@ -723,6 +814,8 @@ function renderServer(el, d, t0) {
       keys: [["pin_refused_over_budget", "over_budget"], ["pin_refused_nothing_cached", "nothing_cached"], ["pin_refused_already_finished", "already_finished"]] },
     { id: "srv-pin-force", title: "prefix pins force-released (cumulative, by reason)", yLabel: "pins force-released", fmt: (v) => fmtNum(v, 0),
       keys: [["pin_force_released_admission", "admission"], ["pin_force_released_decode", "decode"], ["pin_force_released_mamba_headroom", "mamba_headroom"]] },
+    { id: "srv-host-cache", title: "HiCache host (CPU) cache usage, by pool", yLabel: "host cache usage", fmt: fmtPct, yMax: 1,
+      keys: [["hicache_host_kv_usage", "KV"], ["hicache_host_mamba_usage", "mamba"]] },
     { id: "srv-retracted", title: "retracted requests (cumulative)", key: "num_retracted_requests_total", yLabel: "retracted reqs", fmt: (v) => fmtNum(v, 0) },
   ];
   for (const ch of charts) {

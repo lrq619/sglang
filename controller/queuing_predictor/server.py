@@ -56,7 +56,12 @@ from aiohttp import web
 
 from controller.queuing_predictor.client import InstanceClient
 from controller.queuing_predictor.costs import StepCosts
-from controller.queuing_predictor.counterfactual import PinDecision, decide_pin
+from controller.queuing_predictor.lifetime import (
+    CounterRates,
+    PinDecision,
+    decide_pin,
+    parse_counters,
+)
 from controller.queuing_predictor.pool import DecodePool
 from controller.queuing_predictor.predictor import predict
 from controller.queuing_predictor.simulator import UnsupportedConfig, check_supported
@@ -72,13 +77,20 @@ SHADOW_COLUMNS = [
 
 PIN_COLUMNS = [
     "t_unix", "instance", "rid", "replica_id", "turn_id", "decision", "reason",
-    "toolcall_s", "path_tokens", "shared_tokens", "shared_known", "unique_tokens",
-    "reuse_tokens", "next_input_len", "next_decode_tokens", "evictable_other",
-    "num_running", "num_waiting", "kv_free", "kt_s",
-    *(f for f in PinDecision.__struct_fields__ if f not in (
-        "decision", "unique_tokens", "evictable_other", "num_running", "num_waiting")),
-    "snapshot_age_s", "pool_size", "decide_ms", "handler_ms", "unpin_status",
+    "toolcall_s", "path_tokens", "shared_tokens", "shared_known", "next_input_len",
+    "next_decode_tokens", "kv_free",
+    *(f for f in PinDecision.__struct_fields__ if f != "decision"),
+    "snapshot_age_s", "decide_ms", "handler_ms", "unpin_status",
 ]
+# One row per unpinned turn once the server reports how long its path survived.
+LIFETIME_COLUMNS = [
+    "t_unix", "instance", "rid", "replica_id", "turn_id", "decided_unix", "toolcall_s",
+    "hold_nopin_s", "next_turn_queue_s", "predicted_device_s", "predicted_host_s",
+    "predicted_outcome", "num_tokens", "device_lifetime_s", "host_lifetime_s",
+    "admitted_after_s", "actual_outcome",
+]
+# Seconds between /metrics scrapes for the lifetime predictor's counter rates.
+METRICS_INTERVAL_S = 1.0
 
 
 class PredictorService:
@@ -97,6 +109,13 @@ class PredictorService:
         self._predict_log = None
         self._pin_file = None
         self._pin_writer: Optional[csv.DictWriter] = None
+        self.rates: Dict[str, CounterRates] = {}
+        self._lifetime_seq: Dict[str, int] = {}
+        # rid -> the prediction made when it was unpinned, until its lifetime arrives.
+        self._lifetime_pending: Dict[str, dict] = {}
+        self._lifetime_file = None
+        self._lifetime_writer: Optional[csv.DictWriter] = None
+        self._metrics_task: asyncio.Task = None
 
     async def start(self, app: web.Application) -> None:
         self._http = aiohttp.ClientSession(
@@ -118,12 +137,20 @@ class PredictorService:
             self._pin_writer = csv.DictWriter(self._pin_file, PIN_COLUMNS)
             if self._pin_file.tell() == 0:
                 self._pin_writer.writeheader()
+        if self.args.lifetime_log:
+            self._lifetime_file = open(self.args.lifetime_log, "a", newline="")
+            self._lifetime_writer = csv.DictWriter(self._lifetime_file, LIFETIME_COLUMNS)
+            if self._lifetime_file.tell() == 0:
+                self._lifetime_writer.writeheader()
+        self._metrics_task = asyncio.create_task(self._metrics_loop())
         self._poller = asyncio.create_task(self._poll_loop())
 
     async def stop(self, app: web.Application) -> None:
         self._poller.cancel()
+        self._metrics_task.cancel()
         await self._http.close()
-        for f in (self._shadow_file, self._dump_file, self._predict_log, self._pin_file):
+        for f in (self._shadow_file, self._dump_file, self._predict_log, self._pin_file,
+                  self._lifetime_file):
             if f is not None:
                 f.close()
 
@@ -147,6 +174,7 @@ class PredictorService:
                 if isinstance(r, Exception):
                     logger.warning("poll %s failed: %r", url, r)
                     continue
+                self._ingest_lifetimes(url=url, snaps=r[1])
                 if self._dump_file is not None:
                     self._dump_file.write(
                         json.dumps({"url": url, "received_unix": time.time(), "snaps": r[1]})
@@ -160,6 +188,36 @@ class PredictorService:
             if self._dump_file is not None:
                 self._dump_file.flush()
             await asyncio.sleep(self.args.poll_interval)
+
+    async def _metrics_loop(self) -> None:
+        while True:
+            results = await asyncio.gather(
+                *(c.metrics_text() for c in self.clients.values()), return_exceptions=True
+            )
+            t = time.monotonic()
+            for url, r in zip(self.clients, results):
+                if isinstance(r, Exception):
+                    logger.warning("metrics %s failed: %r", url, r)
+                    continue
+                self.rates.setdefault(url, CounterRates()).add(t=t, counters=parse_counters(r))
+            await asyncio.sleep(METRICS_INTERVAL_S)
+
+    def _ingest_lifetimes(self, *, url: str, snaps: List[dict]) -> None:
+        seen = self._lifetime_seq.get(url, 0)
+        for snap in snaps:
+            for rec in snap.get("lifetimes") or []:
+                if rec["seq"] <= seen:
+                    continue
+                seen = max(seen, rec["seq"])
+                pred = self._lifetime_pending.pop(rec["rid"], None)
+                if pred is None or self._lifetime_writer is None:
+                    continue
+                self._lifetime_writer.writerow(
+                    {**pred, **_actual_lifetime(rec), "t_unix": time.time()}
+                )
+        self._lifetime_seq[url] = seen
+        if self._lifetime_file is not None:
+            self._lifetime_file.flush()
 
     async def handle_predict(self, request: web.Request) -> web.Response:
         t0 = time.perf_counter()
@@ -290,7 +348,6 @@ class PredictorService:
             "reuse_tokens": body["reuse_tokens"],
             "next_input_len": body["next_input_len"],
             "next_decode_tokens": body["next_decode_tokens"],
-            "pool_size": len(self.pool),
         }
         decision, reason = self._pin_decide(client=client, body=body, row=row)
         row.update(decision=decision, reason=reason)
@@ -307,19 +364,13 @@ class PredictorService:
 
     def _pin_decide(self, *, client: InstanceClient, body: dict, row: dict):
         """(decision, reason); fills the cost columns of row. Without a usable
-        snapshot or pool the pin is kept, as the handover policy would."""
-        if not self.pool.ready:
-            return "pin", "pool_not_ready"
+        snapshot the pin is kept, as the handover policy would."""
         if body["reuse_tokens"] <= 0:
             return "nopin", "no_reuse"
         snaps = client.last_snapshots
         if not snaps:
             return "pin", "no_snapshot"
         snap = snaps[0]
-        try:
-            check_supported(snap["config"])
-        except UnsupportedConfig as e:
-            return "pin", f"unsupported: {e}"
         entry = client.last_running_entry(body["rid"])
         shared_known = entry is not None and entry.get("shared_prefix_tokens") is not None
         shared = entry["shared_prefix_tokens"] if shared_known else 0
@@ -327,18 +378,13 @@ class PredictorService:
         t0 = time.perf_counter()
         d = decide_pin(
             snap=snap,
-            snapshot_age_s=age,
-            pool=self.pool,
+            rates=self.rates.setdefault(client.url, CounterRates()),
             costs=self.costs,
             rid=body["rid"],
             path_tokens=int(body["path_tokens"]),
             shared_tokens=int(shared),
             reuse_tokens=int(body["reuse_tokens"]),
-            next_input_len=int(body["next_input_len"]),
-            next_decode_tokens=int(body["next_decode_tokens"]),
             toolcall_s=float(body["toolcall_s"]),
-            samples=self.args.pin_samples,
-            rng=self.rng,
         )
         row.update(msgspec.to_builtins(d))
         row.update(
@@ -347,10 +393,22 @@ class PredictorService:
             shared_known=int(shared_known),
             snapshot_age_s=age,
             kv_free=snap["memory"]["kv_available"] + snap["memory"]["kv_evictable"],
-            # The simple estimate: every waiting request held back for the whole tool call.
-            kt_s=d.num_waiting * float(body["toolcall_s"]),
         )
-        return d.decision, "simulated"
+        if d.decision == "nopin":
+            self._lifetime_pending[body["rid"]] = {
+                "instance": client.url,
+                "rid": body["rid"],
+                "replica_id": body.get("replica_id"),
+                "turn_id": body.get("turn_id"),
+                "decided_unix": time.time(),
+                "toolcall_s": body["toolcall_s"],
+                "hold_nopin_s": d.hold_nopin_s,
+                "next_turn_queue_s": d.next_turn_queue_s,
+                "predicted_device_s": d.lifetime_device_s,
+                "predicted_host_s": d.lifetime_host_s,
+                "predicted_outcome": d.nopin_outcome,
+            }
+        return d.decision, "lifetime"
 
     def _shadow_predict(self, *, url: str, got) -> None:
         received, snaps = got
@@ -451,6 +509,29 @@ class PredictorService:
         )
 
 
+def _actual_lifetime(rec: dict) -> dict:
+    """Ground truth of one unpinned path: how long it stayed on device and on
+    host, and where the next turn found it (device / host / lost), or "unknown"
+    if tracking ended with the path still cached and no next turn."""
+    dev, host, admitted = rec["device_lifetime_s"], rec["host_lifetime_s"], rec["admitted_after_s"]
+    if admitted is not None:
+        if dev is None or dev > admitted:
+            outcome = "device"
+        elif host is None or host > admitted:
+            outcome = "host"
+        else:
+            outcome = "lost"
+    else:
+        outcome = "lost" if dev is not None and host is not None else "unknown"
+    return {
+        "num_tokens": rec["num_tokens"],
+        "device_lifetime_s": dev,
+        "host_lifetime_s": host,
+        "admitted_after_s": admitted,
+        "actual_outcome": outcome,
+    }
+
+
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--instances", required=True, help="comma-separated SGLang URLs")
@@ -468,7 +549,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--shadow-log", help="CSV of first-sight predictions per queued rid")
     p.add_argument("--dump-snapshots", help="gzip JSON lines of every polled snapshot")
     p.add_argument("--log-predicts", help="JSON lines of every /predict input and result")
-    p.add_argument("--pin-log", help="CSV of every /pin_decision with both worlds' costs")
+    p.add_argument("--pin-log", help="CSV of every /pin_decision with its costs")
+    p.add_argument(
+        "--lifetime-log",
+        help="CSV of predicted vs measured KV lifetime of every unpinned turn",
+    )
     p.add_argument(
         "--pin-samples",
         type=int,

@@ -228,6 +228,7 @@ from sglang.srt.managers.schedule_policy import (
     AddReqResult,
     PrefillAdder,
     SchedulePolicy,
+    peek_cached_prefix_len_for_req,
     peek_prefix_path_for_req,
     peek_prefix_path_for_tokens,
 )
@@ -1384,6 +1385,7 @@ class Scheduler(
             max_mamba_fraction=mem.prefix_pin_max_mamba_fraction,
             release_order=mem.prefix_pin_release_order,
             admit_first=mem.prefix_pin_admit_first,
+            node_residency=self.tree_cache.node_residency,
         )
         self.tree_cache.prefix_pins = self.prefix_pins
 
@@ -2561,6 +2563,22 @@ class Scheduler(
                 self.prefix_pins.admits_first
                 if self.prefix_pins is not None
                 and get_memory().prefix_pin_admit_first
+                else None
+            ),
+            peek_cached_prefix_len_for_req=(
+                (lambda req: peek_cached_prefix_len_for_req(self.tree_cache, req))
+                if get_memory().enable_hierarchical_cache
+                else None
+            ),
+            enable_hierarchical_cache=get_memory().enable_hierarchical_cache,
+            get_host_pool_usage=(
+                self.tree_cache.host_pool_usage
+                if get_memory().enable_hierarchical_cache
+                else None
+            ),
+            get_lifetimes=(
+                self.prefix_pins.recent_lifetimes
+                if self.prefix_pins is not None
                 else None
             ),
         )

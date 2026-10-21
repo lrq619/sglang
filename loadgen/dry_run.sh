@@ -22,9 +22,11 @@
 #   METRICS_INTERVAL  /metrics sampling period in seconds (default 1)
 #   PRELOAD_JOBS  parallel readers for the page-cache preload (default 8; 0 skips it)
 #   LOADGEN_EXTRA_ARGS  extra loadgen.py flags (word-split), e.g. "--pin"
-#   PREDICTOR_COSTS  StepCosts JSON for the queueing predictor sidecar; profiled on the
-#                    first (idle) server when the file is missing, then the sidecar runs
-#                    alongside loadgen and logs first-sight predictions to predictions.csv
+#   PREDICTOR_COSTS  StepCosts JSON for the predictor sidecar; profiled on the first
+#                    (idle) server when the file is missing, then the sidecar runs
+#                    alongside loadgen, answers --pin-mode cost pin decisions and logs
+#                    them (pin_decisions.csv) with the KV lifetimes they led to
+#                    (lifetimes.csv)
 #   PREDICTOR_PORT   sidecar port (default 32000; 31000+ are the servers' NCCL ports)
 #   Plus every knob of launch_servers.sh (MODEL, CONTEXT_LENGTH, BASE_PORT, ...).
 set -uo pipefail
@@ -169,17 +171,16 @@ if [ -n "${PREDICTOR_COSTS:-}" ]; then
     (cd "$REPO" && exec "$PYTHON" -u -m controller.queuing_predictor.server \
         --instances "$ENDPOINTS" --costs "$PREDICTOR_COSTS" \
         --port "${PREDICTOR_PORT:-32000}" --poll-interval 0.25 \
-        --shadow-log "$LOGDIR/predictions.csv" \
         --dump-snapshots "$LOGDIR/snapshots.jsonl.gz" \
-        --log-predicts "$LOGDIR/predict_log.jsonl" \
-        --pin-log "$LOGDIR/pin_decisions.csv") > "$LOGDIR/predictor.log" 2>&1 &
+        --pin-log "$LOGDIR/pin_decisions.csv" \
+        --lifetime-log "$LOGDIR/lifetimes.csv") > "$LOGDIR/predictor.log" 2>&1 &
     PREDICTOR_PID=$!
     until curl -sf "http://127.0.0.1:${PREDICTOR_PORT:-32000}/health" > /dev/null; do
         kill -0 "$PREDICTOR_PID" 2> /dev/null || { log "predictor sidecar died"; exit 1; }
         sleep 1
     done
     LOADGEN_EXTRA_ARGS="${LOADGEN_EXTRA_ARGS:-} --predictor http://127.0.0.1:${PREDICTOR_PORT:-32000}"
-    log "predictor sidecar on :${PREDICTOR_PORT:-32000} -> predictions.csv, turn_predicted_queuing_latency"
+    log "predictor sidecar on :${PREDICTOR_PORT:-32000} -> pin_decisions.csv, lifetimes.csv"
 fi
 
 # ===== 2. loadgen =====

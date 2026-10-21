@@ -589,6 +589,26 @@ class UnifiedRadixCache(BasePrefixCache):
             return []
         return self.tree_core.peek_prefix_path(key)
 
+    def node_residency(self, node_handle: Any) -> Optional[tuple[bool, bool]]:
+        if self.disable or not isinstance(node_handle, int):
+            return None
+        return self.tree_core.node_residency(node_handle)
+
+    def host_pool_usage(self) -> Optional[dict[str, tuple[int, int]]]:
+        if self.disable or self.host_pool_group is None:
+            return None
+        usage = {}
+        for name, pool_name in (("kv", PoolName.KV), ("mamba", PoolName.MAMBA)):
+            pool = self.host_pool_group.get_pool(pool_name)
+            if pool is not None:
+                usage[name] = (int(pool.available_size()), int(pool.size))
+        return usage
+
+    def peek_cached_prefix_len(self, key: RadixKey) -> Optional[int]:
+        if self.disable or not self.tree_core.enable_hicache:
+            return None
+        return self.tree_core.peek_cached_prefix_len(key)
+
     def shared_locked_tokens(self, node_handle: Any) -> Optional[int]:
         if self.disable or not isinstance(node_handle, int):
             return 0

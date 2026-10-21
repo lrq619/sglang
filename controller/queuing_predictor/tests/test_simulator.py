@@ -111,6 +111,21 @@ class TestSimulator(unittest.TestCase):
                              queue_decode=np.array([0]), costs=COSTS)
         self.assertAlmostEqual(wait, 5 * COSTS.decode_step(batch=1, ctx_tokens=0))
 
+    def test_host_prefix_skips_prefill_but_needs_device_kv(self):
+        """A HiCache host hit costs no prefill chunk, but its KV must fit on device."""
+        def wait_behind(head_cached, free):
+            snap = _snap(waiting=[(6000, 0)], free=free, chunk=4096)
+            snap["waiting"][0]["cached_prefix_len"] = head_cached
+            return simulate_wait(sc=_scenario(snap), running_remaining=np.zeros(0),
+                                 chunked_decode=0, queue_decode=np.array([5, 0]),
+                                 costs=COSTS)
+        # Uncached head fills the first chunk, so the target waits one prefill step.
+        self.assertAlmostEqual(wait_behind(0, 10**7), COSTS.prefill_step([(4096, 0)]))
+        # Host-cached head prefills one token; the target joins the same pass.
+        self.assertEqual(wait_behind(6000, 10**7), 0.0)
+        # 1 + 5999 host tokens + 4096 reserve exceed 8000 free: the head blocks.
+        self.assertEqual(wait_behind(6000, 8000), HORIZON_S)
+
     def test_busy_step_delays_admission(self):
         step = {"forward_iter": 1, "mode": "extend", "launch_age_s": 0.01,
                 "result_processed": False, "num_reqs": 1,
@@ -226,3 +241,35 @@ class TestPredict(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCounterfactualHostCapacity(unittest.TestCase):
+    """Without a pin the next turn reloads its prefix from host unless host LRU
+    eviction reaches it first, and then it re-prefills."""
+
+    def _reprefill(self, *, host_total, host_available):
+        from controller.queuing_predictor.counterfactual import decide_pin
+
+        snap = _snap(running=[(1000, 0)], free=0)
+        snap["config"]["enable_hierarchical_cache"] = True
+        snap["memory"].update(
+            host_kv_total=host_total, host_kv_available=host_available
+        )
+        pool = DecodePool(cap=100, min_size=1)
+        for _ in range(10):
+            pool.add(5000)
+        d = decide_pin(
+            snap=snap, snapshot_age_s=0.0, pool=pool, costs=COSTS, rid="done",
+            path_tokens=3000, shared_tokens=0, reuse_tokens=3000,
+            next_input_len=3200, next_decode_tokens=10, toolcall_s=50.0,
+            samples=2, rng=np.random.default_rng(0),
+        )
+        return d.nopin_reprefill_tokens
+
+    def test_ample_host_keeps_the_swapped_prefix(self):
+        self.assertEqual(self._reprefill(host_total=10**7, host_available=0), 0)
+
+    def test_full_small_host_evicts_it_and_forces_re_prefill(self):
+        # The running request decodes ~2500 tokens during the 50 s tool call:
+        # far past the 100 older host tokens, and the device pool has no slack.
+        self.assertGreater(self._reprefill(host_total=100, host_available=0), 2000)

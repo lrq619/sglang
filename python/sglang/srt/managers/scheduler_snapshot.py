@@ -12,6 +12,8 @@ from typing import List, Optional
 
 import msgspec
 
+from sglang.srt.mem_cache.prefix_pin import LifetimeRecord
+
 
 class SnapshotConfig(msgspec.Struct, kw_only=True, frozen=True):
     max_total_num_tokens: int
@@ -25,6 +27,8 @@ class SnapshotConfig(msgspec.Struct, kw_only=True, frozen=True):
     enable_overlap: bool
     # --prefix-pin-admit-first: waiting requests with admits_first go first.
     admit_pinned_first: bool = False
+    # --enable-hierarchical-cache: evicted prefixes stay reusable from host memory.
+    enable_hierarchical_cache: bool = False
     # SGLANG_CLIP_MAX_NEW_TOKENS_ESTIMATION, the cap PrefillAdder applies to
     # max_new_tokens when reserving decode headroom.
     clip_max_new_tokens: int
@@ -45,6 +49,12 @@ class MemorySnapshot(msgspec.Struct, kw_only=True, frozen=True):
     mamba_available: Optional[int] = None
     mamba_evictable: Optional[int] = None
     mamba_used: Optional[int] = None
+    # HiCache host tier: free and total host KV tokens / mamba states; None
+    # without HiCache. A full host pool evicts its least recently used entries.
+    host_kv_available: Optional[int] = None
+    host_kv_total: Optional[int] = None
+    host_mamba_available: Optional[int] = None
+    host_mamba_total: Optional[int] = None
 
 
 class StepSnapshot(msgspec.Struct, kw_only=True, frozen=True):
@@ -107,6 +117,9 @@ class WaitingReqSnapshot(msgspec.Struct, kw_only=True, frozen=True):
     # Its prefix is still pinned for it, so it is tried before the rest of the
     # queue and passed over when it does not fit (--prefix-pin-admit-first).
     admits_first: bool = False
+    # Device prefix plus HiCache host hit at snapshot time: no prefill for it, but
+    # the host part needs fresh device KV on admission. None without HiCache.
+    cached_prefix_len: Optional[int] = None
 
 
 class FinishedReqRecord(msgspec.Struct, kw_only=True, frozen=True):
@@ -141,5 +154,8 @@ class SchedulerSnapshot(msgspec.Struct, kw_only=True, frozen=True):
     finished_seq_tail: int
     # Entries with seq > finished_since, oldest first; empty when it is None.
     finished: List[FinishedReqRecord] = []
+    # Latest lifetimes of paths the controller unpinned (--enable-prefix-pin),
+    # oldest first; a reader dedups them by seq.
+    lifetimes: List[LifetimeRecord] = []
     # Scheduler-side time to build this snapshot.
     build_ms: float = 0.0

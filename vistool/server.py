@@ -38,9 +38,16 @@ TURN_LATENCY_COLUMNS = [
     "server_e2e_latency",
 ]
 TURN_RATIO_COLUMNS = ["kvc_hit_ratio"]
-TURN_COUNT_COLUMNS = ["prompt_tokens", "cached_tokens"]
+# cached_tokens_device + cached_tokens_host == cached_tokens; both empty in runs
+# that predate the split.
+TURN_COUNT_COLUMNS = [
+    "prompt_tokens",
+    "cached_tokens",
+    "cached_tokens_device",
+    "cached_tokens_host",
+]
 # pin_decisions.csv (queuing_predictor sidecar, --pin-mode cost): kept as rows.
-PIN_TEXT_COLUMNS = ["instance", "rid", "decision", "reason", "unpin_status"]
+PIN_TEXT_COLUMNS = ["instance", "rid", "decision", "reason", "unpin_status", "nopin_outcome"]
 PIN_NUMBER_COLUMNS = [
     "t_unix", "replica_id", "turn_id", "toolcall_s", "path_tokens", "shared_tokens",
     "unique_tokens", "reuse_tokens", "next_input_len", "num_running", "num_waiting",
@@ -48,6 +55,9 @@ PIN_NUMBER_COLUMNS = [
     "pin_sum_wait_s", "nopin_sum_wait_s", "pin_r_wait_s", "nopin_r_wait_s",
     "nopin_r_prefix", "nopin_reprefill_tokens", "nopin_reprefill_s", "num_requests",
     "num_truncated", "snapshot_age_s", "decide_ms", "handler_ms",
+    # Lifetime-based decisions (newer runs).
+    "cost_pin", "cost_nopin", "hold_pin_s", "hold_nopin_s", "next_turn_queue_s",
+    "lifetime_device_s", "lifetime_host_s", "prefill_s", "reload_s",
 ]
 GAUGE_COLUMNS = [
     "num_queue_reqs",
@@ -64,8 +74,31 @@ GAUGE_COLUMNS = [
     "pin_force_released_admission",
     "pin_force_released_decode",
     "pin_force_released_mamba_headroom",
+    "hicache_host_used_tokens",
+    "hicache_host_total_tokens",
+    "hicache_host_mamba_used_states",
+    "hicache_host_mamba_total_states",
 ]
-RUN_FILES = ["run_info.txt", "arrivals.jsonl", "loadgen.csv", "metrics.csv", "pin_decisions.csv"]
+# Derived per sample from the HiCache gauges above: used / total of each host pool.
+HOST_USAGE_COLUMNS = {
+    "hicache_host_kv_usage": ("hicache_host_used_tokens", "hicache_host_total_tokens"),
+    "hicache_host_mamba_usage": (
+        "hicache_host_mamba_used_states",
+        "hicache_host_mamba_total_states",
+    ),
+}
+RUN_FILES = [
+    "run_info.txt", "arrivals.jsonl", "loadgen.csv", "metrics.csv", "pin_decisions.csv",
+    "lifetimes.csv",
+]
+# lifetimes.csv (queuing_predictor sidecar): predicted vs measured KV lifetime of
+# every unpinned turn; kept as rows.
+LIFETIME_TEXT_COLUMNS = ["instance", "rid", "predicted_outcome", "actual_outcome"]
+LIFETIME_NUMBER_COLUMNS = [
+    "t_unix", "decided_unix", "replica_id", "turn_id", "toolcall_s", "hold_nopin_s",
+    "next_turn_queue_s", "predicted_device_s", "predicted_host_s", "num_tokens",
+    "device_lifetime_s", "host_lifetime_s", "admitted_after_s",
+]
 # A run without an "end" line whose files are all older than this was killed.
 STALE_AFTER_S = 600
 # Runs nest at most this deep under --logdir (e.g. sweep_x/r12_y).
@@ -257,12 +290,30 @@ def _load_turns(logdir: str) -> dict:
     return cols
 
 
+# Predicted lifetimes, written as 1e9 s for a tier under no eviction pressure.
+UNBOUNDED_COLUMNS = {"predicted_device_s", "predicted_host_s", "lifetime_device_s", "lifetime_host_s"}
+
+
+def _unbounded_to_none(column: str, v):
+    return None if column in UNBOUNDED_COLUMNS and v is not None and v >= 1e8 else v
+
+
+def _load_lifetimes(logdir: str) -> list:
+    """lifetimes.csv as one dict per unpinned turn; empty when the run had none."""
+    rows = []
+    for r in _read_csv(os.path.join(logdir, "lifetimes.csv")):
+        row = {c: r.get(c) or None for c in LIFETIME_TEXT_COLUMNS}
+        row.update({c: _unbounded_to_none(c, _float(r.get(c), 3)) for c in LIFETIME_NUMBER_COLUMNS})
+        rows.append(row)
+    return rows
+
+
 def _load_pins(logdir: str) -> list:
     """pin_decisions.csv as one dict per decision; empty when the run had none."""
     rows = []
     for r in _read_csv(os.path.join(logdir, "pin_decisions.csv")):
         row = {c: r.get(c) or None for c in PIN_TEXT_COLUMNS}
-        row.update({c: _float(r.get(c), 4) for c in PIN_NUMBER_COLUMNS})
+        row.update({c: _unbounded_to_none(c, _float(r.get(c), 4)) for c in PIN_NUMBER_COLUMNS})
         rows.append(row)
     return rows
 
@@ -295,11 +346,17 @@ def _load_metrics(logdir: str) -> dict:
         t = _float(r.get("t"), 3)
         if r.get("error") or t is None:
             continue
-        series = metrics.setdefault(r["endpoint"], {"t": [], **{c: [] for c in GAUGE_COLUMNS}})
+        series = metrics.setdefault(
+            r["endpoint"],
+            {"t": [], **{c: [] for c in [*GAUGE_COLUMNS, *HOST_USAGE_COLUMNS]}},
+        )
         series["t"].append(t)
         for c in GAUGE_COLUMNS:
             # Older metrics.csv files lack the newer gauges; those stay None.
             series[c].append(_float(r.get(c), 4))
+        for c, (used, total) in HOST_USAGE_COLUMNS.items():
+            u, n = _float(r.get(used), 4), _float(r.get(total), 4)
+            series[c].append(round(u / n, 4) if u is not None and n else None)
     return metrics
 
 
@@ -321,6 +378,7 @@ def load_run(logdir: str) -> dict:
         "turns": turns,
         "metrics": _load_metrics(logdir),
         "pins": _load_pins(logdir),
+        "lifetimes": _load_lifetimes(logdir),
     }
 
 

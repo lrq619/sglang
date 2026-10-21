@@ -190,6 +190,18 @@ def peek_prefix_path_for_req(
     )
 
 
+def peek_cached_prefix_len_for_req(
+    tree_cache: BasePrefixCache, req: Req
+) -> Optional[int]:
+    """Prefix a match would give `req` now from device or host (HiCache);
+    read-only. None without a host tier."""
+    token_ids = req.origin_input_ids + req.output_ids
+    n = tree_cache.peek_cached_prefix_len(_radix_key_for_req(tree_cache, req, token_ids))
+    if n is None:
+        return None
+    return min(n, req._compute_max_prefix_len(len(token_ids)))
+
+
 def peek_prefix_path_for_tokens(
     tree_cache: BasePrefixCache, token_ids: array[int], ranks: Optional[dict]
 ) -> Optional[List[PrefixBoundary]]:

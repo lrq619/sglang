@@ -60,6 +60,11 @@ class Pending(msgspec.Struct, kw_only=True, frozen=True):
     # Its prefix is pinned for it: with Scenario.admit_pinned_first it is tried
     # before the rest of the queue and passed over when it does not fit.
     pinned: bool = False
+    # Device plus HiCache host prefix; 0 when there is no host tier.
+    cached: int = 0
+    # Host tokens LRU-evicted before the host part of `cached` goes; None keeps
+    # it regardless (host eviction not modelled for this entry).
+    host_rank: Optional[float] = None
 
     @property
     def extend(self) -> int:
@@ -69,6 +74,18 @@ class Pending(msgspec.Struct, kw_only=True, frozen=True):
         """Part of a `prefix`-long match another request already locks."""
         locked = [n for n, rank in self.prefix_path if rank is None and n <= prefix]
         return max(locked, default=0)
+
+    def with_host(
+        self, device_prefix: int, host_evicted: float = 0.0
+    ) -> Tuple[int, int]:
+        """(prefix skipped by prefill, host part of it) for a device prefix: the
+        host part costs no compute but fresh device KV; its PCIe load is ignored.
+        `host_evicted` host tokens gone by LRU since the snapshot."""
+        host = self.cached
+        if self.host_rank is not None and host_evicted >= self.host_rank:
+            host = 0
+        cached = max(device_prefix, min(host, max(0, self.ctx - 1)))
+        return cached, cached - device_prefix
 
     def surviving_prefix(self, evicted: float) -> int:
         """Cached prefix left after `evicted` device tokens went by LRU."""
@@ -103,6 +120,9 @@ class Scenario(msgspec.Struct, kw_only=True, frozen=True):
     ratio_decay: float
     # --prefix-pin-admit-first; only counterfactual.run_world models it.
     admit_pinned_first: bool = False
+    # Free host KV tokens; device allocations beyond it are taken as host
+    # write-through that evicts by LRU. None without HiCache.
+    host_kv_available: Optional[float] = None
 
 
 def check_supported(config: dict) -> None:
@@ -160,6 +180,11 @@ def build_scenario(
         ),
         free_tokens=float(memory["kv_available"] + memory["kv_evictable"]),
         kv_available=float(memory["kv_available"]),
+        host_kv_available=(
+            None
+            if memory.get("host_kv_available") is None
+            else float(memory["host_kv_available"])
+        ),
         busy_s=_busy_s(snap=snap, running_ctx=float(ctx.sum()), costs=costs),
         chunk=int(chunk),
         max_running=config["max_running_requests"],
@@ -186,6 +211,7 @@ def _queue(*, snap: dict, prefix_ratio: float) -> List[Pending]:
                 max_new=w["max_new_tokens"],
                 prefix_path=_path(w.get("prefix_path")),
                 pinned=w.get("admits_first", False),
+                cached=w.get("cached_prefix_len") or 0,
             )
         )
     # The reply carries only the head of a long queue; stand in for the rest
@@ -284,23 +310,24 @@ def simulate(
                 head_qi = qi
                 head_prefix = q.surviving_prefix(max(0.0, allocated - sc.kv_available))
             prefix = head_prefix
-            extend = max(1, q.ctx - prefix)
+            cached, host = q.with_host(prefix)
+            extend = max(1, q.ctx - cached)
             max_new_left = max(0, q.max_new - q.generated)
-            if extend + min(max_new_left, clip) > free - offset - pass_reserve:
+            if extend + host + min(max_new_left, clip) > free - offset - pass_reserve:
                 break
             if qi == len(queue) - 1:
-                return t, prefix
+                return t, cached
             take = min(extend, budget)
-            chunks.append((take, prefix))
+            chunks.append((take, cached))
             # Locking the cached prefix takes it out of the evictable pool,
             # except the part another request already locks.
             locked = q.locked_prefix(prefix)
-            free -= prefix - locked + take
-            allocated += take
+            free -= prefix - locked + host + take
+            allocated += host + take
             if take >= extend:
                 pass_reserve += min(max_new_left, clip)
             inflight.append(
-                [q.ctx, extend - take, prefix + take, queue_decode[qi], max_new_left, locked]
+                [q.ctx, extend - take, cached + take, queue_decode[qi], max_new_left, locked]
             )
             budget -= take
             slots += 1
@@ -335,8 +362,9 @@ def simulate(
 
 def _target_prefix(queue, head_qi, head_prefix, allocated, sc) -> int:
     if head_qi == len(queue) - 1:
-        return head_prefix
-    return queue[-1].surviving_prefix(max(0.0, allocated - sc.kv_available))
+        return queue[-1].with_host(head_prefix)[0]
+    dev = queue[-1].surviving_prefix(max(0.0, allocated - sc.kv_available))
+    return queue[-1].with_host(dev)[0]
 
 
 def _join_prefilled(*, inflight: list, ctx, rem, max_left, shared, free: float):

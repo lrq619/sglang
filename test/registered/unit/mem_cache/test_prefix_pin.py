@@ -269,3 +269,54 @@ class TestPrefixPinRegistry(CustomTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUnpinnedLifetimes(CustomTestCase):
+    """Only a controller unpin starts tracking; the record ends when the path
+    has left device and host, or when its next turn is admitted."""
+
+    def setUp(self):
+        self.tree = _CountingTree()
+        self.clock = _Clock()
+        self.residency = {}
+        self.reg = PrefixPinRegistry(
+            tree_cache=self.tree, kv_capacity=10_000, mamba_capacity=None,
+            mamba_free_states=None, max_kv_fraction=0.5, max_mamba_fraction=0.5,
+            release_order="oldest",
+            node_residency=lambda node: self.residency.get(node, (False, False)),
+            clock=self.clock,
+        )
+
+    def _pin(self, rid, node):
+        self.reg.on_request_released(_req(rid, pin_on_finish=True), cached=_cached(node))
+        self.residency[node] = (True, True)
+
+    def test_device_then_host_eviction(self):
+        self._pin("a", 1)
+        self.clock.now = 10.0
+        self.reg.unpin("a")
+        self.clock.now = 13.0
+        self.residency[1] = (False, True)
+        self.assertEqual(self.reg.recent_lifetimes(), [])
+        self.clock.now = 30.0
+        self.residency[1] = (False, False)
+        (rec,) = self.reg.recent_lifetimes()
+        self.assertEqual((rec.device_lifetime_s, rec.host_lifetime_s, rec.admitted_after_s), (3.0, 20.0, None))
+
+    def test_next_turn_admitted_first_is_censored(self):
+        self._pin("a", 1)
+        self.reg.unpin("a")
+        self.clock.now = 5.0
+        self.residency[1] = (False, True)
+        self.reg.recent_lifetimes()
+        self.clock.now = 8.0
+        self.reg.handover([_req("next", finished=False, release_pin_of="a")])
+        (rec,) = self.reg.recent_lifetimes()
+        self.assertEqual((rec.device_lifetime_s, rec.host_lifetime_s, rec.admitted_after_s), (5.0, None, 8.0))
+
+    def test_handover_of_a_pin_is_not_tracked(self):
+        self._pin("a", 1)
+        self.reg.handover([_req("next", finished=False, release_pin_of="a")])
+        self.assertEqual(self.tree.held(), 0)
+        self.residency[1] = (False, False)
+        self.assertEqual(self.reg.recent_lifetimes(), [])

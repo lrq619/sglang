@@ -164,6 +164,9 @@ class SchedulerStats:
     # HiCache metrics
     hicache_host_used_tokens: int = 0
     hicache_host_total_tokens: int = 0
+    # Host mamba state pool of a hybrid SSM model; 0 without one.
+    hicache_host_mamba_used_states: int = 0
+    hicache_host_mamba_total_states: int = 0
 
     # Streaming session metrics
     num_streaming_sessions: int = 0
@@ -696,6 +699,18 @@ class SchedulerMetricsCollector(_StatLoggerDIMixin):
             self.hicache_host_total_tokens = Gauge(
                 name="sglang:hicache_host_total_tokens",
                 documentation="Total capacity of the host KV cache in tokens.",
+                labelnames=labels.keys(),
+                multiprocess_mode="mostrecent",
+            )
+            self.hicache_host_mamba_used_states = Gauge(
+                name="sglang:hicache_host_mamba_used_states",
+                documentation="Number of mamba states currently used in the host cache.",
+                labelnames=labels.keys(),
+                multiprocess_mode="mostrecent",
+            )
+            self.hicache_host_mamba_total_states = Gauge(
+                name="sglang:hicache_host_mamba_total_states",
+                documentation="Total capacity of the host mamba state cache.",
                 labelnames=labels.keys(),
                 multiprocess_mode="mostrecent",
             )
@@ -1518,6 +1533,14 @@ class SchedulerMetricsCollector(_StatLoggerDIMixin):
             )
             self._log_gauge(
                 self.hicache_host_total_tokens, stats.hicache_host_total_tokens
+            )
+            self._log_gauge(
+                self.hicache_host_mamba_used_states,
+                stats.hicache_host_mamba_used_states,
+            )
+            self._log_gauge(
+                self.hicache_host_mamba_total_states,
+                stats.hicache_host_mamba_total_states,
             )
 
         # Streaming session metrics

@@ -446,6 +446,21 @@ class BasePrefixCache(ABC, PrefixCacheTrait):
         shallowest first; None when the cache cannot answer read-only."""
         return None
 
+    def node_residency(self, node_handle: Any) -> Optional[tuple[bool, bool]]:
+        """Read-only: (fully on device, fully on host) for a tree node, both
+        False once it is gone; None when the cache cannot tell."""
+        return None
+
+    def host_pool_usage(self) -> Optional[dict[str, tuple[int, int]]]:
+        """Read-only HiCache host tier occupancy: {pool: (available, size)} with
+        "kv" in tokens and "mamba" in states; None without a host tier."""
+        return None
+
+    def peek_cached_prefix_len(self, key: RadixKey) -> Optional[int]:
+        """Read-only: prefix of ``key`` cached on device or host (HiCache); None
+        without a host tier or when the cache cannot answer read-only."""
+        return None
+
     def shared_locked_tokens(self, node_handle: Any) -> Optional[int]:
         """Read-only: device tokens on the path to ``node_handle`` that another
         holder also locks, so they stay allocated when this holder releases.

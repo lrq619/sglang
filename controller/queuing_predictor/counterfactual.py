@@ -9,6 +9,8 @@ arrives toolcall_s later and can reuse reuse_tokens of that path.
   no pin: the unique part is evictable at once, newest in LRU order, so it goes
           after every other evictable token; R keeps what survives the eviction
           by the time the scheduler first attempts it, and prefills the rest.
+          With HiCache the rest is reloaded from host instead: no prefill, but
+          fresh device KV (the PCIe transfer itself is taken as free).
 
 Both worlds start from the same snapshot, draw the same decode lengths and run
 until every request present (running, chunked, waiting, plus R) has finished.
@@ -122,6 +124,17 @@ def decide_pin(
         decode=next_decode_tokens,
         release_on_admit=float(max(0, path_tokens - max(reuse, shared))),
     )
+    # HiCache writes the path through to host, so an evicted prefix is reloaded
+    # into fresh device KV instead of re-prefilled.
+    host_cached = reuse if snap["config"].get("enable_hierarchical_cache") else 0
+    # The path was just written through to host, newest in its LRU: it is lost
+    # once host eviction has gone through everything else held there.
+    memory = snap["memory"]
+    host_rank = (
+        None
+        if memory.get("host_kv_total") is None
+        else float(memory["host_kv_total"] - memory["host_kv_available"])
+    )
     nopin_arrival = Arrival(
         t=t_arrive,
         req=_next_turn(
@@ -129,6 +142,8 @@ def decide_pin(
             max_new=next_decode_tokens,
             path=_nopin_path(shared=shared, reuse=reuse, path_tokens=path_tokens,
                              evictable_other=evictable_other),
+            cached=host_cached,
+            host_rank=host_rank,
         ),
         decode=next_decode_tokens,
     )
@@ -177,7 +192,15 @@ def decide_pin(
     )
 
 
-def _next_turn(*, ctx: int, max_new: int, path: tuple, pinned: bool = False) -> Pending:
+def _next_turn(
+    *,
+    ctx: int,
+    max_new: int,
+    path: tuple,
+    pinned: bool = False,
+    cached: int = 0,
+    host_rank: Optional[float] = None,
+) -> Pending:
     return Pending(
         ctx=ctx,
         prefix=max((n for n, _ in path), default=0),
@@ -185,6 +208,8 @@ def _next_turn(*, ctx: int, max_new: int, path: tuple, pinned: bool = False) -> 
         max_new=max_new,
         prefix_path=path,
         pinned=pinned,
+        cached=cached,
+        host_rank=host_rank,
     )
 
 
@@ -253,6 +278,12 @@ def run_world(
     t = sc.busy_s
     allocated = 0.0
     head_qi, head_prefix = -1, 0
+
+    def host_evicted(allocated: float) -> float:
+        if sc.host_kv_available is None:
+            return 0.0
+        return max(0.0, allocated - sc.host_kv_available)
+
     finish_sum, done_n = 0.0, 0
     admit: List[float] = []
     wait_sum = 0.0
@@ -285,25 +316,26 @@ def run_world(
             nonlocal free, allocated, budget, slots, pass_reserve, wait_sum
             nonlocal r_wait, r_prefix
             q = queue[i]
-            extend = max(1, q.ctx - prefix)
+            cached, host = q.with_host(prefix, host_evicted(allocated))
+            extend = max(1, q.ctx - cached)
             max_new_left = max(0, q.max_new - q.generated)
-            if extend + min(max_new_left, clip) > free - offset - pass_reserve:
+            if extend + host + min(max_new_left, clip) > free - offset - pass_reserve:
                 return False
             admitted[i] = True
             admit.append(t)
             wait_sum += t - arrived_at[i]
             if i == r_index:
-                r_wait, r_prefix = t - arrived_at[i], prefix
+                r_wait, r_prefix = t - arrived_at[i], cached
                 free += arrival.release_on_admit
             take = min(extend, budget)
-            chunks.append((take, prefix))
+            chunks.append((take, cached))
             locked = q.locked_prefix(prefix)
-            free -= prefix - locked + take
-            allocated += take
+            free -= prefix - locked + host + take
+            allocated += host + take
             if take >= extend:
                 pass_reserve += min(max_new_left, clip)
             inflight.append(
-                [q.ctx, extend - take, prefix + take, decodes[i], max_new_left, locked]
+                [q.ctx, extend - take, cached + take, decodes[i], max_new_left, locked]
             )
             budget -= take
             slots += 1
@@ -370,9 +402,9 @@ def run_world(
     finish_sum += truncated * max(t, horizon_s)
     if arrival is not None and math.isnan(r_wait):
         r_wait = max(t, horizon_s) - arrival.t
-        r_prefix = queue[r_index].surviving_prefix(
+        r_prefix = queue[r_index].with_host(queue[r_index].surviving_prefix(
             max(0.0, allocated - sc.kv_available)
-        ) if r_index < len(queue) else arrival.req.prefix
+        ), host_evicted(allocated))[0] if r_index < len(queue) else arrival.req.prefix
     return WorldResult(
         mean_finish_s=finish_sum / max(1, num_requests),
         num_requests=num_requests,

@@ -965,6 +965,45 @@ class UnifiedTreeCore(UnifiedTreeCoreInterface):
                 path.append((offset, node.id))
         return path
 
+    def peek_cached_prefix_len(self, key: RadixKey) -> int:
+        """Length match_prefix would report as cached on device or host (device
+        prefix plus host hit), without splitting nodes or refreshing LRU."""
+        key, _ = key.maybe_to_bigram_view(self.is_eagle)
+        key = key.page_aligned(self.page_size)
+        validators = tuple(comp.create_match_validator() for comp in self.components)
+        kv_only = all(
+            comp.component_type == BASE_COMPONENT_TYPE for comp in self.components
+        )
+        node, offset, best = self.root_node, 0, 0
+        while offset < len(key):
+            child = node.children.get(key.child_key_at(offset, self.page_size))
+            if child is None or (child.evicted and not child.backuped):
+                break
+            prefix_len = child.key.match_at(key, offset, page_size=self.page_size)
+            if prefix_len < len(child.key):
+                if kv_only and all(v(child) for v in validators):
+                    best = offset + prefix_len
+                break
+            offset += prefix_len
+            node = child
+            if all(v(node) for v in validators):
+                best = offset
+        return best
+
+    def node_residency(self, node_id: NodeId) -> tuple[bool, bool]:
+        """(fully on device, fully on host) for a node's KV and, on a hybrid SSM
+        tree, its mamba state; (False, False) once the node is gone. Read-only."""
+        node = self._node_arena.get(node_id)
+        if node is None:
+            return False, False
+        full = node.component_data[ComponentType.FULL]
+        on_device, on_host = full.value is not None, full.host_value is not None
+        if ComponentType.MAMBA in node.component_types:
+            mamba = node.component_data[ComponentType.MAMBA]
+            on_device = on_device and mamba.value is not None
+            on_host = on_host and mamba.host_value is not None
+        return on_device, on_host
+
     def peek_prefix_len(self, key: RadixKey) -> int:
         path = self.peek_prefix_path(key)
         return path[-1][0] if path else 0

@@ -37,6 +37,11 @@ GAUGES = {
     "pinned_mamba_usage": "sglang:pinned_mamba_usage",
     # Cumulative counters; a (metric, reason) pair reads one label value.
     "num_retracted_requests_total": "sglang:num_retracted_requests_total",
+    # HiCache host (CPU) tier; absent without --enable-hierarchical-cache.
+    "hicache_host_used_tokens": "sglang:hicache_host_used_tokens",
+    "hicache_host_total_tokens": "sglang:hicache_host_total_tokens",
+    "hicache_host_mamba_used_states": "sglang:hicache_host_mamba_used_states",
+    "hicache_host_mamba_total_states": "sglang:hicache_host_mamba_total_states",
     "pin_refused_over_budget": ("sglang:prefix_pin_refused_total", "over_budget"),
     "pin_refused_nothing_cached": ("sglang:prefix_pin_refused_total", "nothing_cached"),
     "pin_refused_already_finished": (

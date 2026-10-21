@@ -1,0 +1,29 @@
+theta picked on dev (precision >= TokenCake): 0.03
+
+== tail >=H (6.4 s), LLM flags tail when P(>=H) >= 0.25 [theta=0.25] ==
+group                         n  pos | exact TKC    LLM |  ±1 TKC    LLM | tail R TKC    LLM | tail P TKC    LLM | argmax R/P
+all                         870  138 |     45.7%  63.3% |   69.1%  82.0% |      55.8%  88.4% |      40.3%  54.7% | 76.1/59.7
+dev                         403   48 |     51.1%  67.2% |   67.7%  83.4% |      45.8%  89.6% |      28.2%  57.3% | 68.8/63.5
+test                        467   90 |     41.1%  60.0% |   70.2%  80.7% |      61.1%  87.8% |      48.7%  53.4% | 80.0/58.1
+bench:deepresearch_bench    370   64 |     54.9%  67.0% |   79.2%  88.1% |      59.4%  82.8% |      59.4%  65.4% | 68.8/69.8
+bench:terminal_bench        500   74 |     39.0%  60.6% |   61.6%  77.4% |      52.7%  93.2% |      30.7%  48.6% | 82.4/54.0
+route:hist3                 800  138 |     42.2%  60.9% |   66.5%  80.6% |      55.8%  88.4% |      40.3%  54.7% | 76.1/59.7
+route:hist5                  70    0 |     85.7%  91.4% |   98.6%  97.1% |       nan%   nan% |       nan%   nan% | nan/nan
+  bootstrap LLM-TKC 95% CI [all]: exact [+14.6, +20.6]  tail R [+24.8, +40.8]  tail P [+8.9, +20.2]
+  bootstrap LLM-TKC 95% CI [dev]: exact [+11.7, +20.3]  tail R [+27.8, +58.9]  tail P [+19.6, +39.5]
+  bootstrap LLM-TKC 95% CI [test]: exact [+14.8, +23.1]  tail R [+18.1, +36.0]  tail P [-2.2, +11.6]
+
+== tail >=H (6.4 s), LLM flags tail when P(>=H) >= 0.03 [theta_dev=0.03] ==
+group                         n  pos | exact TKC    LLM |  ±1 TKC    LLM | tail R TKC    LLM | tail P TKC    LLM | argmax R/P
+all                         870  138 |     45.7%  63.3% |   69.1%  82.0% |      55.8%  98.6% |      40.3%  34.4% | 76.1/59.7
+dev                         403   48 |     51.1%  67.2% |   67.7%  83.4% |      45.8%  97.9% |      28.2%  29.9% | 68.8/63.5
+test                        467   90 |     41.1%  60.0% |   70.2%  80.7% |      61.1%  98.9% |      48.7%  37.4% | 80.0/58.1
+bench:deepresearch_bench    370   64 |     54.9%  67.0% |   79.2%  88.1% |      59.4%  98.4% |      59.4%  37.5% | 68.8/69.8
+bench:terminal_bench        500   74 |     39.0%  60.6% |   61.6%  77.4% |      52.7%  98.6% |      30.7%  32.2% | 82.4/54.0
+route:hist3                 800  138 |     42.2%  60.9% |   66.5%  80.6% |      55.8%  98.6% |      40.3%  36.2% | 76.1/59.7
+route:hist5                  70    0 |     85.7%  91.4% |   98.6%  97.1% |       nan%   nan% |       nan%   0.0% | nan/nan
+  bootstrap LLM-TKC 95% CI [all]: exact [+14.6, +20.6]  tail R [+34.8, +51.0]  tail P [-11.4, -0.7]
+  bootstrap LLM-TKC 95% CI [dev]: exact [+11.7, +20.3]  tail R [+37.1, +66.7]  tail P [-6.4, +9.6]
+  bootstrap LLM-TKC 95% CI [test]: exact [+14.8, +23.1]  tail R [+28.4, +47.8]  tail P [-18.2, -4.6]
+
+suffix query latency median/P90: 193 / 533 ms; cache hit ratio median 90.8%

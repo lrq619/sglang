@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from typing import TYPE_CHECKING, Callable, Optional
 
 import msgspec
@@ -54,6 +54,10 @@ MAMBA_STATES_PER_ADMISSION = 6
 # Arbitrary bounds on bookkeeping for rids the registry may never hear about again.
 _MAX_PENDING = 4096
 _MAX_REMEMBERED_RIDS = 16384
+# Arbitrary: an unpinned path no next turn reuses is dropped from tracking after this,
+# and the last this many finished lifetimes are kept for /scheduler_snapshot.
+_MAX_TRACK_S = 1800.0
+_LIFETIME_RING = 1024
 
 
 class PinStatus:
@@ -104,6 +108,33 @@ class PinEntry(msgspec.Struct, frozen=True):
     expected_return_at: Optional[float]
 
 
+class LifetimeRecord(msgspec.Struct, kw_only=True, frozen=True):
+    """How long an unpinned path stayed cached, from its /unpin_prefix on."""
+
+    seq: int
+    rid: str
+    num_tokens: int
+    # Seconds until the path was no longer fully on device / on host (KV and,
+    # on a hybrid SSM tree, mamba state); None if it outlived the tracking.
+    device_lifetime_s: Optional[float]
+    host_lifetime_s: Optional[float]
+    # Seconds until the next turn (release_pin_of) was admitted, which ends the
+    # tracking; None if none was.
+    admitted_after_s: Optional[float]
+
+
+class _Tracked:
+    """An unpinned path whose residency is being watched."""
+
+    def __init__(self, *, rid: str, node_id: int, num_tokens: int, start: float):
+        self.rid = rid
+        self.node_id = node_id
+        self.num_tokens = num_tokens
+        self.start = start
+        self.device_gone: Optional[float] = None
+        self.host_gone: Optional[float] = None
+
+
 class PinResult(msgspec.Struct, frozen=True):
     status: str
     num_tokens: int = 0
@@ -123,6 +154,7 @@ class PrefixPinRegistry:
         max_mamba_fraction: float,
         release_order: str,
         admit_first: bool = False,
+        node_residency: Optional[Callable[[int], Optional[tuple[bool, bool]]]] = None,
         clock: Callable[[], float] = time.monotonic,
     ):
         assert release_order in PREFIX_PIN_RELEASE_ORDER_CHOICES, release_order
@@ -135,6 +167,11 @@ class PrefixPinRegistry:
         self._mamba_free_states = mamba_free_states
         self._release_order = release_order
         self._admit_first = admit_first
+        # Lifetimes of unpinned paths are measured only when residency is readable.
+        self._node_residency = node_residency
+        self._tracked: dict[str, _Tracked] = {}
+        self._lifetimes: deque[LifetimeRecord] = deque(maxlen=_LIFETIME_RING)
+        self._lifetime_seq = 0
         self._clock = clock
 
         self._pins: dict[str, PinEntry] = {}
@@ -221,6 +258,19 @@ class PrefixPinRegistry:
         return PinResult(status=PinStatus.PENDING)
 
     def unpin(self, rid: str) -> str:
+        """Release requested by the controller; the path's lifetime is then
+        measured until its next turn is admitted (recent_lifetimes)."""
+        if rid in self._pins and self._node_residency is not None:
+            entry = self._pins[rid]
+            self._tracked[rid] = _Tracked(
+                rid=rid,
+                node_id=entry.node_id,
+                num_tokens=entry.num_tokens,
+                start=self._clock(),
+            )
+        return self._unpin_untracked(rid)
+
+    def _unpin_untracked(self, rid: str) -> str:
         if rid in self._pins:
             self._release(rid)
             return PinStatus.UNPINNED
@@ -235,6 +285,7 @@ class PrefixPinRegistry:
         for rid in list(self._pins):
             self._release(rid)
         self._pending.clear()
+        self._tracked.clear()
 
     # ===== Request lifecycle =====
 
@@ -263,8 +314,52 @@ class PrefixPinRegistry:
         they asked to take over (``release_pin_of``)."""
         for req in reqs:
             if req.release_pin_of is not None:
-                self.unpin(req.release_pin_of)
+                self._finish_tracking(req.release_pin_of, admitted=True)
+                self._unpin_untracked(req.release_pin_of)
                 req.release_pin_of = None
+
+    # ===== Lifetimes of unpinned paths =====
+
+    def recent_lifetimes(self) -> list[LifetimeRecord]:
+        """Refresh the residency of tracked paths, then the latest finished
+        lifetimes, oldest first; a reader dedups them by seq."""
+        self._poll_residency()
+        return list(self._lifetimes)
+
+    def _poll_residency(self) -> None:
+        now = self._clock()
+        for rid in list(self._tracked):
+            t = self._tracked[rid]
+            residency = self._node_residency(t.node_id)
+            if residency is None:
+                del self._tracked[rid]
+                continue
+            on_device, on_host = residency
+            if not on_device and t.device_gone is None:
+                t.device_gone = now
+            if not on_host and t.host_gone is None:
+                t.host_gone = now
+            if t.device_gone is not None and t.host_gone is not None:
+                self._finish_tracking(rid, admitted=False)
+            elif now - t.start > _MAX_TRACK_S:
+                self._finish_tracking(rid, admitted=False)
+
+    def _finish_tracking(self, rid: str, *, admitted: bool) -> None:
+        t = self._tracked.pop(rid, None)
+        if t is None:
+            return
+        now = self._clock()
+        self._lifetime_seq += 1
+        self._lifetimes.append(
+            LifetimeRecord(
+                seq=self._lifetime_seq,
+                rid=rid,
+                num_tokens=t.num_tokens,
+                device_lifetime_s=None if t.device_gone is None else t.device_gone - t.start,
+                host_lifetime_s=None if t.host_gone is None else t.host_gone - t.start,
+                admitted_after_s=now - t.start if admitted else None,
+            )
+        )
 
     # ===== Safety valve =====
 
