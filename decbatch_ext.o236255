@@ -1,0 +1,83 @@
+[18:33:33] config N=261952 slots=28 B=1/4/8
+[18:36:55] preloading /data/projects/12004493/models/Qwen3.8-27B into page cache
+[18:37:02] launching servers
+Launching 1 server(s) on GPU(s): GPU-19ba1e91-6142-1260-5d0d-060013dca4e4
+ready: http://127.0.0.1:30000
+[18:40:27] endpoints: http://127.0.0.1:30000
+[2026-11-05 18:38:55] max_running_requests is capped to 9 by the mamba state cache (max_mamba_cache_size=28, 3 state slots per request). To raise it: increase --mamba-full-memory-ratio or --max-mamba-cache-size, or halve the state size with --mamba-ssm-dtype bfloat16.
+[2026-11-05 18:38:55] Mamba Cache is allocated. max_mamba_cache_size: 28, conv_state size: 0.08GB, ssm_state size: 4.08GB 
+[2026-11-05 18:38:55] KV Cache is allocated. dtype: torch.float8_e4m3fn, #tokens: 2289194, K size: 34.93 GB, V size: 34.93 GB
+[2026-11-05 18:39:30] max_total_num_tokens=2289194, chunked_prefill_size=32768, max_prefill_tokens=32768, max_running_requests=9, context_len=262144, available_gpu_mem=13.16 GB
+[18:40:27] bench start
+[0] http://127.0.0.1:30000 KV pool 2289194 tokens, lens [261952]
+[0] N=261952 warmed 8 prompts in 683.8s
+[0] N=261952 B= 8 rep=-1 valid=1 tpot=40.81ms thr=196.0tok/s skew=6ms 
+[0] N=261952 B= 1 rep= 0 valid=1 tpot=17.93ms thr=55.8tok/s skew=0ms 
+[0] N=261952 B= 8 rep= 0 valid=1 tpot=40.96ms thr=195.3tok/s skew=173ms 
+[0] N=261952 B= 4 rep= 0 valid=1 tpot=27.42ms thr=145.9tok/s skew=3ms 
+[0] N=261952 B= 8 rep= 1 valid=1 tpot=40.85ms thr=195.9tok/s skew=74ms 
+[0] N=261952 B= 4 rep= 1 valid=1 tpot=27.41ms thr=145.9tok/s skew=3ms 
+[0] N=261952 B= 1 rep= 1 valid=1 tpot=17.96ms thr=55.7tok/s skew=0ms 
+[0] N=261952 B= 1 rep= 2 valid=1 tpot=17.95ms thr=55.7tok/s skew=0ms 
+[0] N=261952 B= 4 rep= 2 valid=1 tpot=27.40ms thr=146.0tok/s skew=3ms 
+[0] N=261952 B= 8 rep= 2 valid=1 tpot=40.94ms thr=195.4tok/s skew=71ms 
+[18:52:33] bench exit=0
+[18:52:33] server log: 0 retraction events
+decbatch_ext_n261952_20261105_183339: 10 trials, 0 invalid 
+  N    B=1    B=4    B=8   
+ 256K  1.00   2.62   3.51  
+[18:52:39] done: /home/users/ntu/ruiqi003/scratch/logs/decbatch_ext_n261952_20261105_183339
+[18:52:49] cleanup done
+[18:52:49] config N=261952 exit=0
+[18:52:49] config N=32768 slots=152 B=1/16/20/24/28/32/36/40/44/48
+[18:52:55] preloading /data/projects/12004493/models/Qwen3.8-27B into page cache
+[18:52:56] launching servers
+Launching 1 server(s) on GPU(s): GPU-19ba1e91-6142-1260-5d0d-060013dca4e4
+ready: http://127.0.0.1:30000
+[18:53:41] endpoints: http://127.0.0.1:30000
+[2026-11-05 18:53:27] max_running_requests is capped to 50 by the mamba state cache (max_mamba_cache_size=152, 3 state slots per request). To raise it: increase --mamba-full-memory-ratio or --max-mamba-cache-size, or halve the state size with --mamba-ssm-dtype bfloat16.
+[2026-11-05 18:53:27] Mamba Cache is allocated. max_mamba_cache_size: 152, conv_state size: 0.42GB, ssm_state size: 21.52GB 
+[2026-11-05 18:53:27] KV Cache is allocated. dtype: torch.float8_e4m3fn, #tokens: 1706642, K size: 26.04 GB, V size: 26.04 GB
+[2026-11-05 18:53:30] max_total_num_tokens=1706642, chunked_prefill_size=32768, max_prefill_tokens=32768, max_running_requests=50, context_len=262144, available_gpu_mem=12.93 GB
+[18:53:41] bench start
+[0] http://127.0.0.1:30000 KV pool 1706642 tokens, lens [32768]
+[0] N=32768 warmed 48 prompts in 176.3s
+[0] N= 32768 B=48 rep=-1 valid=1 tpot=43.15ms thr=1112.3tok/s skew=470ms 
+[0] N= 32768 B=40 rep= 0 valid=0 tpot=42.40ms thr=943.5tok/s skew=1ms prefix hit 0 < 32704; evicted 512 tokens
+[0] N= 32768 B=44 rep= 0 valid=0 tpot=42.87ms thr=1026.3tok/s skew=9590ms prefix hit 0 < 32704
+[0] N= 32768 B=16 rep= 0 valid=0 tpot=22.68ms thr=705.4tok/s skew=0ms prefix hit 0 < 32704
+[0] N= 32768 B=32 rep= 0 valid=1 tpot=30.38ms thr=1053.5tok/s skew=70ms 
+[0] N= 32768 B=24 rep= 0 valid=1 tpot=29.38ms thr=817.0tok/s skew=4ms 
+[0] N= 32768 B=28 rep= 0 valid=1 tpot=29.54ms thr=947.7tok/s skew=139ms 
+[0] N= 32768 B=20 rep= 0 valid=1 tpot=25.22ms thr=792.9tok/s skew=3ms 
+[0] N= 32768 B= 1 rep= 0 valid=1 tpot=15.17ms thr=65.9tok/s skew=0ms 
+[0] N= 32768 B=48 rep= 0 valid=0 tpot=43.27ms thr=1109.2tok/s skew=14859ms prefix hit 0 < 32704
+[0] N= 32768 B=36 rep= 0 valid=0 tpot=41.93ms thr=858.6tok/s skew=5ms evicted 256 tokens
+[0] N= 32768 B=48 rep= 1 valid=0 tpot=43.26ms thr=1109.6tok/s skew=13185ms prefix hit 0 < 32704
+[0] N= 32768 B=28 rep= 1 valid=1 tpot=29.54ms thr=947.7tok/s skew=4ms 
+[0] N= 32768 B=44 rep= 1 valid=0 tpot=42.88ms thr=1026.0tok/s skew=7405ms prefix hit 0 < 32704
+[0] N= 32768 B=36 rep= 1 valid=1 tpot=41.92ms thr=858.9tok/s skew=70ms 
+[0] N= 32768 B= 1 rep= 1 valid=1 tpot=15.16ms thr=65.9tok/s skew=0ms 
+[0] N= 32768 B=16 rep= 1 valid=1 tpot=22.57ms thr=708.9tok/s skew=3ms 
+[0] N= 32768 B=40 rep= 1 valid=1 tpot=42.40ms thr=943.5tok/s skew=87ms 
+[0] N= 32768 B=20 rep= 1 valid=1 tpot=25.22ms thr=792.9tok/s skew=3ms 
+[0] N= 32768 B=24 rep= 1 valid=1 tpot=29.37ms thr=817.1tok/s skew=4ms 
+[0] N= 32768 B=32 rep= 1 valid=1 tpot=30.39ms thr=1053.0tok/s skew=4ms 
+[0] N= 32768 B=40 rep= 2 valid=1 tpot=42.40ms thr=943.4tok/s skew=75ms 
+[0] N= 32768 B= 1 rep= 2 valid=1 tpot=15.16ms thr=65.9tok/s skew=0ms 
+[0] N= 32768 B=48 rep= 2 valid=1 tpot=43.25ms thr=1109.9tok/s skew=79ms 
+[0] N= 32768 B=24 rep= 2 valid=1 tpot=29.38ms thr=817.0tok/s skew=3ms 
+[0] N= 32768 B=20 rep= 2 valid=1 tpot=25.22ms thr=792.9tok/s skew=3ms 
+[0] N= 32768 B=32 rep= 2 valid=1 tpot=30.39ms thr=1052.9tok/s skew=4ms 
+[0] N= 32768 B=36 rep= 2 valid=1 tpot=41.84ms thr=860.4tok/s skew=69ms 
+[0] N= 32768 B=44 rep= 2 valid=0 tpot=42.87ms thr=1026.3tok/s skew=22040ms prefix hit 0 < 32704; evicted 384 tokens
+[0] N= 32768 B=16 rep= 2 valid=1 tpot=22.52ms thr=710.4tok/s skew=3ms 
+[0] N= 32768 B=28 rep= 2 valid=1 tpot=29.54ms thr=947.8tok/s skew=10ms 
+[19:00:19] bench exit=0
+[19:00:19] server log: 0 retraction events
+decbatch_ext_n32768_20261105_185250: 31 trials, 8 invalid ['evicted 256 tokens', 'prefix hit 0 < 32704', 'prefix hit 0 < 32704; evicted 384 tokens', 'prefix hit 0 < 32704; evicted 512 tokens']
+  N    B=1    B=16   B=20   B=24   B=28   B=32   B=36   B=40   B=48  
+  32K  1.00   10.76  12.02  12.39  14.37  15.97  13.04  14.31  16.83 
+[19:00:19] done: /home/users/ntu/ruiqi003/scratch/logs/decbatch_ext_n32768_20261105_185250
+[19:00:30] cleanup done
+[19:00:30] config N=32768 exit=0

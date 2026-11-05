@@ -1,0 +1,34 @@
+[19:00:48] config N=32768 slots=152 B=1/44/48
+[19:02:44] preloading /data/projects/12004493/models/Qwen3.8-27B into page cache
+[19:02:48] launching servers
+Launching 1 server(s) on GPU(s): GPU-cbbe7f21-a18f-3659-7e58-277984d5d51b
+ready: http://127.0.0.1:30000
+[19:04:44] endpoints: http://127.0.0.1:30000
+[2026-11-05 19:03:53] max_running_requests is capped to 50 by the mamba state cache (max_mamba_cache_size=152, 3 state slots per request). To raise it: increase --mamba-full-memory-ratio or --max-mamba-cache-size, or halve the state size with --mamba-ssm-dtype bfloat16.
+[2026-11-05 19:03:53] Mamba Cache is allocated. max_mamba_cache_size: 152, conv_state size: 0.42GB, ssm_state size: 21.52GB 
+[2026-11-05 19:03:53] KV Cache is allocated. dtype: torch.float8_e4m3fn, #tokens: 1706642, K size: 26.04 GB, V size: 26.04 GB
+[2026-11-05 19:04:15] max_total_num_tokens=1706642, chunked_prefill_size=32768, max_prefill_tokens=32768, max_running_requests=50, context_len=262144, available_gpu_mem=12.93 GB
+[19:04:44] bench start
+[0] http://127.0.0.1:30000 KV pool 1706642 tokens, lens [32768]
+[0] N=32768 warmed 48 prompts in 178.7s
+[0] N= 32768 B=48 rep=-1 try=0 valid=1 tpot=43.28ms thr=1109.1tok/s skew=472ms 
+[0] N= 32768 B= 1 rep= 0 try=0 valid=1 tpot=15.21ms thr=65.7tok/s skew=0ms 
+[0] N= 32768 B=48 rep= 0 try=0 valid=1 tpot=43.29ms thr=1108.8tok/s skew=201ms 
+[0] N= 32768 B=44 rep= 0 try=0 valid=1 tpot=42.80ms thr=1028.0tok/s skew=433ms 
+[0] N= 32768 B=48 rep= 1 try=0 valid=0 tpot=43.30ms thr=1108.4tok/s skew=7453ms prefix hit 0 < 32704; evicted 128 tokens
+[0] N= 32768 B=48 rep= 1 try=1 valid=1 tpot=43.29ms thr=1108.9tok/s skew=90ms 
+[0] N= 32768 B=44 rep= 1 try=0 valid=0 tpot=42.74ms thr=1029.4tok/s skew=11163ms prefix hit 0 < 32704; evicted 448 tokens
+[0] N= 32768 B=44 rep= 1 try=1 valid=1 tpot=42.79ms thr=1028.3tok/s skew=121ms 
+[0] N= 32768 B= 1 rep= 1 try=0 valid=1 tpot=15.21ms thr=65.7tok/s skew=0ms 
+[0] N= 32768 B= 1 rep= 2 try=0 valid=1 tpot=15.21ms thr=65.7tok/s skew=0ms 
+[0] N= 32768 B=44 rep= 2 try=0 valid=1 tpot=42.81ms thr=1027.9tok/s skew=75ms 
+[0] N= 32768 B=48 rep= 2 try=0 valid=0 tpot=43.31ms thr=1108.4tok/s skew=25970ms prefix hit 0 < 32704; evicted 192 tokens
+[0] N= 32768 B=48 rep= 2 try=1 valid=1 tpot=43.30ms thr=1108.6tok/s skew=78ms 
+[19:09:46] bench exit=0
+[19:09:46] server log: 0 retraction events
+decbatch_fill_n32768_20261105_190114: 13 trials, 3 invalid ['prefix hit 0 < 32704; evicted 128 tokens', 'prefix hit 0 < 32704; evicted 192 tokens', 'prefix hit 0 < 32704; evicted 448 tokens']
+  N    B=1    B=44   B=48  
+  32K  1.00   15.64  16.87 
+[19:09:53] done: /home/users/ntu/ruiqi003/scratch/logs/decbatch_fill_n32768_20261105_190114
+[19:10:03] cleanup done
+[19:10:03] config N=32768 exit=0

@@ -1,7 +1,8 @@
 """Filter a replay CSV (see .claude/REPLAY.md) down to its clean sessions.
 
 A session is clean when every row has prompt_available = True, every row except
-the last has turn_toolcall_latency_ms, and it is not on the exclusion list.
+the last has turn_toolcall_latency_ms, every row decodes at least one token, no
+prompt_reset row is empty, and it is not on the exclusion list.
 For hermes.csv this keeps 36 sessions (DR 20, TB 16).
 
 Output is JSONL, one session per line, holding only the fields replay needs:
@@ -59,6 +60,13 @@ def main():
             continue
         if not parse_bool(rows[0]["prompt_reset"]):
             dropped.append((sid, "first row is not prompt_reset"))
+            continue
+        # Tool-only rows (no LLM output) cannot be replayed as a /generate request.
+        if any(int(r["decode_num_tokens"]) == 0 for r in rows):
+            dropped.append((sid, "decode_num_tokens=0"))
+            continue
+        if any(parse_bool(r["prompt_reset"]) and int(r["prefill_num_tokens"]) == 0 for r in rows):
+            dropped.append((sid, "empty prompt_reset row"))
             continue
         kept.append((sid, rows))
 

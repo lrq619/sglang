@@ -1,0 +1,22 @@
+[11:44:33] preloading /data/projects/12004493/models/Qwen3.8-27B into page cache
+[11:44:39] launching server
+Launching 1 server(s) on GPU(s): GPU-3c236f43-5330-8036-ae0e-c7fe390963e8
+ready: http://127.0.0.1:30000
+[11:51:21] endpoint: http://127.0.0.1:30000
+[2026-11-05 11:45:49] max_running_requests is capped to 52 by the mamba state cache (max_mamba_cache_size=263, 5 state slots per request). To raise it: increase --mamba-full-memory-ratio or --max-mamba-cache-size, or halve the state size with --mamba-ssm-dtype bfloat16.
+[2026-11-05 11:45:49] Mamba Cache is allocated. max_mamba_cache_size: 263, conv_state size: 0.73GB, ssm_state size: 37.12GB 
+[2026-11-05 11:45:49] KV Cache is allocated. dtype: torch.float8_e4m3fn, #tokens: 957109, K size: 14.60 GB, V size: 14.60 GB
+[2026-11-05 11:50:41] max_total_num_tokens=957109, chunked_prefill_size=32768, max_prefill_tokens=32768, max_running_requests=52, context_len=262144, available_gpu_mem=11.39 GB
+[11:51:21] bench start
+[1/4] rep=0         A valid=1 tpot=16.01ms e2e=2370.10ms ttft=337.38ms cached_min=0 stress_wait=0.0s stress_tok@start= 
+[2/4] rep=0    C(128) valid=1 tpot=16.73ms e2e=2476.18ms ttft=351.91ms cached_min=0 stress_wait=0.3s stress_tok@start=4,4,4,4,4,4,4,4 
+[3/4] rep=0   C(8192) valid=1 tpot=17.58ms e2e=2587.49ms ttft=354.50ms cached_min=0 stress_wait=5.8s stress_tok@start=4,4,4,4,4,4,4,4 
+[4/4] rep=0  C(98304) valid=1 tpot=26.87ms e2e=3780.90ms ttft=367.99ms cached_min=0 stress_wait=136.8s stress_tok@start=4,4,4,4,4,4,4,4 
+[11:53:59] bench exit=0
+     point   n inv        TPOT ms     xA  xLmin           E2E ms     xA  xLmin
+         A   1   0 16.01+-0.00  1.000      - 2370.1+-0.0  1.000      -  
+    C(128)   1   0 16.73+-0.00  1.045  1.000 2476.2+-0.0  1.045  1.000  
+   C(8192)   1   0 17.58+-0.00  1.099  1.051 2587.5+-0.0  1.092  1.045  
+  C(98304)   1   0 26.87+-0.00  1.679  1.607 3780.9+-0.0  1.595  1.527  
+[11:54:05] done: /home/users/ntu/ruiqi003/scratch/logs/longkv_smoke_20261105_114247
+[11:54:15] cleanup done

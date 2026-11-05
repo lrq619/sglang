@@ -1,0 +1,7 @@
+[14:35:07] preloading /data/projects/12004493/models/Qwen3.8-27B into page cache
+[14:35:14] launching servers
+Launching 1 server(s) on GPU(s): GPU-3e8f08b3-6fcb-7a33-5243-60cc0ecc19e2
+/home/users/ntu/ruiqi003/proj/sglang/loadgen/launch_servers.sh: line 109: 1632739 Killed                  CUDA_VISIBLE_DEVICES=$gpu setsid "$PYTHON" -m sglang.launch_server --model-path "$MODEL" --trust-remote-code --context-length "$CONTEXT_LENGTH" --kv-cache-dtype fp8_e4m3 --mem-fraction-static "$MEM_FRACTION_STATIC" --attention-backend flashinfer --chunked-prefill-size 32768 --max-prefill-tokens 32768 --mamba-radix-cache-strategy extra_buffer --mamba-full-memory-ratio "$MAMBA_FULL_MEMORY_RATIO" --reasoning-parser qwen3 --tool-call-parser qwen3_coder --enable-metrics --host 0.0.0.0 --port "$port" --nccl-port $((port + 1000)) ${EXTRA_SERVER_ARGS:-} ${PER_ARGS[$i]:-} >> "$log" 2>&1 < /dev/null
+Server http://127.0.0.1:30000 exited; see /home/users/ntu/ruiqi003/scratch/logs/decbatch_smoke_20261105_143315/servers/server0_port30000.log
+[14:40:44] server launch failed
+[14:40:54] cleanup done

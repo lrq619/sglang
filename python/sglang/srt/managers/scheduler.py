@@ -1385,6 +1385,7 @@ class Scheduler(
             max_mamba_fraction=mem.prefix_pin_max_mamba_fraction,
             release_order=mem.prefix_pin_release_order,
             admit_first=mem.prefix_pin_admit_first,
+            admit_first_scope=mem.prefix_pin_admit_first_scope,
             node_residency=self.tree_cache.node_residency,
         )
         self.tree_cache.prefix_pins = self.prefix_pins

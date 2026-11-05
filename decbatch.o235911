@@ -1,0 +1,54 @@
+[16:48:48] preloading /data/projects/12004493/models/Qwen3.8-27B into page cache
+[16:48:54] launching servers
+Launching 1 server(s) on GPU(s): GPU-50fda84e-8ea6-1fc7-1317-233e2d5200e5
+ready: http://127.0.0.1:30000
+[16:55:25] endpoints: http://127.0.0.1:30000
+[2026-11-05 16:50:03] max_running_requests is capped to 22 by the mamba state cache (max_mamba_cache_size=112, 5 state slots per request). To raise it: increase --mamba-full-memory-ratio or --max-mamba-cache-size, or halve the state size with --mamba-ssm-dtype bfloat16.
+[2026-11-05 16:50:03] Mamba Cache is allocated. max_mamba_cache_size: 112, conv_state size: 0.31GB, ssm_state size: 15.89GB 
+[2026-11-05 16:50:03] KV Cache is allocated. dtype: torch.float8_e4m3fn, #tokens: 1666507, K size: 25.43 GB, V size: 25.43 GB
+[2026-11-05 16:54:47] max_total_num_tokens=1666507, chunked_prefill_size=32768, max_prefill_tokens=32768, max_running_requests=22, context_len=262144, available_gpu_mem=11.47 GB
+[16:55:25] bench start
+[0] http://127.0.0.1:30000 KV pool 1666507 tokens, lens [98304, 1024]
+[0] N=98304 warmed 16 prompts in 273.8s
+[0] N= 98304 B=16 rep=-1 valid=0 tpot=35.12ms thr=455.5tok/s skew=196ms prefix hit 98289 < 98304
+[0] N= 98304 B=11 rep= 0 valid=0 tpot=31.89ms thr=344.9tok/s skew=565ms prefix hit 98289 < 98304
+[0] N= 98304 B=15 rep= 0 valid=0 tpot=35.17ms thr=426.5tok/s skew=161ms prefix hit 98289 < 98304
+[0] N= 98304 B= 6 rep= 0 valid=0 tpot=22.85ms thr=262.6tok/s skew=3ms prefix hit 98289 < 98304
+[0] N= 98304 B= 2 rep= 0 valid=0 tpot=17.27ms thr=115.8tok/s skew=3ms prefix hit 98289 < 98304
+[0] N= 98304 B=10 rep= 0 valid=0 tpot=28.16ms thr=355.1tok/s skew=40ms prefix hit 98289 < 98304
+[0] N= 98304 B= 3 rep= 0 valid=0 tpot=18.64ms thr=160.9tok/s skew=3ms prefix hit 98289 < 98304
+[0] N= 98304 B= 4 rep= 0 valid=0 tpot=19.82ms thr=201.8tok/s skew=2ms prefix hit 98289 < 98304
+[0] N= 98304 B=12 rep= 0 valid=0 tpot=30.62ms thr=391.9tok/s skew=41ms prefix hit 98289 < 98304
+[0] N= 98304 B=14 rep= 0 valid=0 tpot=34.51ms thr=405.7tok/s skew=53ms prefix hit 98289 < 98304
+[0] N= 98304 B= 8 rep= 0 valid=0 tpot=24.98ms thr=320.3tok/s skew=3ms prefix hit 98289 < 98304
+[0] N= 98304 B= 9 rep= 0 valid=0 tpot=26.10ms thr=344.8tok/s skew=36ms prefix hit 98289 < 98304
+[0] N= 98304 B= 5 rep= 0 valid=0 tpot=21.56ms thr=232.0tok/s skew=3ms prefix hit 98289 < 98304
+[0] N= 98304 B= 1 rep= 0 valid=0 tpot=15.93ms thr=62.8tok/s skew=0ms prefix hit 98289 < 98304
+[0] N= 98304 B= 7 rep= 0 valid=0 tpot=23.90ms thr=292.9tok/s skew=33ms prefix hit 98289 < 98304
+[0] N= 98304 B=16 rep= 0 valid=0 tpot=35.26ms thr=453.8tok/s skew=77ms prefix hit 98289 < 98304
+[0] N= 98304 B=13 rep= 0 valid=0 tpot=34.24ms thr=379.7tok/s skew=45ms prefix hit 98289 < 98304
+[0] N=1024 warmed 16 prompts in 1.4s
+[0] N=  1024 B=16 rep=-1 valid=1 tpot=16.90ms thr=946.6tok/s skew=2ms 
+[0] N=  1024 B= 4 rep= 0 valid=1 tpot=15.29ms thr=261.6tok/s skew=2ms 
+[0] N=  1024 B= 8 rep= 0 valid=1 tpot=16.04ms thr=498.7tok/s skew=2ms 
+[0] N=  1024 B=14 rep= 0 valid=1 tpot=16.75ms thr=835.6tok/s skew=3ms 
+[0] N=  1024 B=12 rep= 0 valid=1 tpot=16.60ms thr=723.0tok/s skew=2ms 
+[0] N=  1024 B= 7 rep= 0 valid=1 tpot=15.87ms thr=441.0tok/s skew=3ms 
+[0] N=  1024 B= 6 rep= 0 valid=1 tpot=15.72ms thr=381.7tok/s skew=2ms 
+[0] N=  1024 B= 1 rep= 0 valid=1 tpot=14.75ms thr=67.8tok/s skew=0ms 
+[0] N=  1024 B=11 rep= 0 valid=1 tpot=16.55ms thr=664.5tok/s skew=2ms 
+[0] N=  1024 B=15 rep= 0 valid=1 tpot=16.83ms thr=891.3tok/s skew=3ms 
+[0] N=  1024 B= 9 rep= 0 valid=1 tpot=16.38ms thr=549.5tok/s skew=2ms 
+[0] N=  1024 B= 5 rep= 0 valid=1 tpot=15.56ms thr=321.3tok/s skew=2ms 
+[0] N=  1024 B=16 rep= 0 valid=1 tpot=16.90ms thr=946.5tok/s skew=3ms 
+[0] N=  1024 B= 2 rep= 0 valid=1 tpot=14.97ms thr=133.6tok/s skew=2ms 
+[0] N=  1024 B=13 rep= 0 valid=1 tpot=16.66ms thr=780.1tok/s skew=3ms 
+[0] N=  1024 B= 3 rep= 0 valid=1 tpot=15.12ms thr=198.4tok/s skew=2ms 
+[0] N=  1024 B=10 rep= 0 valid=1 tpot=16.47ms thr=607.3tok/s skew=3ms 
+[17:01:40] bench exit=0
+[17:01:40] server log: 0 retraction events
+34 trials, 17 invalid ['prefix hit 98289 < 98304']
+  N     B=1     B=2     B=4     B=8     B=12    B=16   
+   1K  1.00    1.97    3.86    7.36    10.66   13.96  
+[17:01:45] done: /home/users/ntu/ruiqi003/scratch/logs/decbatch_smoke_20261105_164702
+[17:01:55] cleanup done

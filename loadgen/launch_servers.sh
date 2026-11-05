@@ -22,6 +22,8 @@
 #   PYTHON           interpreter with sglang  (default: <repo>/.venv/bin/python)
 #   CONTEXT_LENGTH   max tokens per request   (default 262144, the native max)
 #   MAMBA_FULL_MEMORY_RATIO  mamba state pool : KV pool memory (default 1.3)
+#   MAMBA_RADIX_CACHE_STRATEGY  --mamba-radix-cache-strategy (default extra_buffer)
+#   ATTENTION_BACKEND  --attention-backend (default flashinfer, the cookbook H200 cell)
 #   MEM_FRACTION_STATIC  --mem-fraction-static (default 0.85, the H200 cell; 0.85
 #                    OOMs in prefill CUDA graph capture on H100 NVL, use 0.80)
 #   BASE_PORT        port of the first server (default 30000; server i uses +i)
@@ -30,6 +32,10 @@
 #   LOG_DIR          per-server logs, pids and endpoints.txt (default logs/servers)
 #   READY_TIMEOUT    seconds to wait for /health on each server (default 1800)
 #   EXTRA_SERVER_ARGS  extra flags appended to every server (word-split), e.g. "--enable-prefix-pin"
+#   LAUNCH_STAGGER_S seconds to wait between server launches (default 0), so large
+#                    HiCache host pools are not populated at the same time
+#   PER_SERVER_ARGS  "|"-separated flags, entry i appended to server i only (word-split),
+#                    e.g. "--enable-hierarchical-cache --hicache-ratio 7|--enable-prefix-pin"
 #
 # Each server runs in its own process group; LOG_DIR/pids lists the group ids,
 # so `kill -- -<pgid>` stops a server together with its scheduler subprocesses.
@@ -63,6 +69,7 @@ fi
 echo "Launching ${#GPUS[@]} server(s) on GPU(s): ${GPUS[*]}" >&2
 printf '%s\n' "${GPUS[@]}" > "$LOG_DIR/gpus"
 
+IFS="|" read -r -a PER_ARGS <<< "${PER_SERVER_ARGS:-}"
 PIDS=()
 ENDPOINTS=()
 LOGS=()
@@ -71,17 +78,17 @@ for i in "${!GPUS[@]}"; do
     gpu=${GPUS[$i]}
     port=$((BASE_PORT + i))
     log="$LOG_DIR/server${i}_port${port}.log"
-    echo "gpu=$gpu port=$port" > "$log"
+    echo "gpu=$gpu port=$port per_server_args=${PER_ARGS[$i]:-}" > "$log"
     CUDA_VISIBLE_DEVICES=$gpu setsid "$PYTHON" -m sglang.launch_server \
         --model-path "$MODEL" \
         --trust-remote-code \
         --context-length "$CONTEXT_LENGTH" \
         --kv-cache-dtype fp8_e4m3 \
         --mem-fraction-static "$MEM_FRACTION_STATIC" \
-        --attention-backend flashinfer \
+        --attention-backend "${ATTENTION_BACKEND:-flashinfer}" \
         --chunked-prefill-size 32768 \
         --max-prefill-tokens 32768 \
-        --mamba-radix-cache-strategy extra_buffer \
+        --mamba-radix-cache-strategy "${MAMBA_RADIX_CACHE_STRATEGY:-extra_buffer}" \
         --mamba-full-memory-ratio "$MAMBA_FULL_MEMORY_RATIO" \
         --reasoning-parser qwen3 \
         --tool-call-parser qwen3_coder \
@@ -90,9 +97,11 @@ for i in "${!GPUS[@]}"; do
         --port "$port" \
         --nccl-port $((port + 1000)) \
         ${EXTRA_SERVER_ARGS:-} \
+        ${PER_ARGS[$i]:-} \
         >> "$log" 2>&1 < /dev/null &
     PIDS+=($!)
     echo $! >> "$LOG_DIR/pids"
+    if [ "$i" -lt $((${#GPUS[@]} - 1)) ]; then sleep "${LAUNCH_STAGGER_S:-0}"; fi
     ENDPOINTS+=("http://${HOST_IP}:${port}")
     LOGS+=("$log")
 done

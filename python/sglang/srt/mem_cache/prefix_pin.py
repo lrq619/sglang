@@ -154,6 +154,7 @@ class PrefixPinRegistry:
         max_mamba_fraction: float,
         release_order: str,
         admit_first: bool = False,
+        admit_first_scope: str = "pinned",
         node_residency: Optional[Callable[[int], Optional[tuple[bool, bool]]]] = None,
         clock: Callable[[], float] = time.monotonic,
     ):
@@ -167,6 +168,8 @@ class PrefixPinRegistry:
         self._mamba_free_states = mamba_free_states
         self._release_order = release_order
         self._admit_first = admit_first
+        assert admit_first_scope in ("pinned", "continuation"), admit_first_scope
+        self._admit_continuations = admit_first_scope == "continuation"
         # Lifetimes of unpinned paths are measured only when residency is readable.
         self._node_residency = node_residency
         self._tracked: dict[str, _Tracked] = {}
@@ -210,17 +213,16 @@ class PrefixPinRegistry:
 
     def admits_first(self, req: Req) -> bool:
         """Whether req jumps the queue: its prefix is still pinned for it, so
-        admitting it costs only its new tokens and hands the pin over."""
-        return (
-            self._admit_first
-            and req.release_pin_of is not None
-            and req.release_pin_of in self._pins
-        )
+        admitting it costs only its new tokens and hands the pin over; with the
+        continuation scope, any later turn of a session, pinned or not."""
+        if not self._admit_first or req.release_pin_of is None:
+            return False
+        return self._admit_continuations or req.release_pin_of in self._pins
 
     def admission_order(self, waiting_queue: list) -> list:
         """The waiting queue as the scheduler should try it: requests that
         admits_first, then the rest, each in queue order."""
-        if not self._admit_first or not self._pins:
+        if not self._admit_first or (not self._pins and not self._admit_continuations):
             return waiting_queue
         first = [r for r in waiting_queue if self.admits_first(r)]
         if not first:

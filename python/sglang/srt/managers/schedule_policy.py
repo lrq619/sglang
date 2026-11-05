@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 import os
 import random
+import time
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -291,6 +292,9 @@ class CacheAwarePolicy(Enum):
     DFS_WEIGHT = "dfs-weight"  # depth-first search weighting
     HRRN = "hrrn"  # highest response ratio next, token-based aging
     SHORTEST_PREFILL_FIRST = "shortest-prefill-first"
+    # smallest admission first: least new device KV to admit (prefill, host
+    # load-back and decode reservation), with an age cap against starvation
+    SMALLEST_ADMISSION_FIRST = "smallest-admission-first"
 
 
 class CacheAgnosticPolicy(Enum):
@@ -364,6 +368,12 @@ class SchedulePolicy:
             elif policy == CacheAwarePolicy.HRRN:
                 SchedulePolicy._sort_by_hrrn(
                     waiting_queue, temporary_deprioritized, processed_tokens
+                )
+            elif policy == CacheAwarePolicy.SMALLEST_ADMISSION_FIRST:
+                SchedulePolicy._sort_by_smallest_admission(
+                    waiting_queue,
+                    temporary_deprioritized,
+                    max_wait_s=get_schedule().saf_max_wait_s,
                 )
             elif policy == CacheAwarePolicy.SHORTEST_PREFILL_FIRST:
                 SchedulePolicy._sort_by_shortest_prefill(
@@ -501,6 +511,38 @@ class SchedulePolicy:
         return max(
             1,
             len(r.origin_input_ids) + len(r.output_ids) - r.num_matched_prefix_tokens,
+        )
+
+    @staticmethod
+    def _admission_tokens(r: Req) -> int:
+        """New device KV tokens admitting r takes: everything past its device
+        prefix (a host hit is loaded into fresh device KV) plus the decode
+        reservation PrefillAdder charges."""
+        context = len(r.origin_input_ids) + len(r.output_ids)
+        decode = min(
+            max(r.sampling_params.max_new_tokens - len(r.output_ids), 0),
+            CLIP_MAX_NEW_TOKENS,
+        )
+        return max(1, context - len(r.prefix_indices)) + decode
+
+    @staticmethod
+    def _sort_by_smallest_admission(
+        waiting_queue: List[Req], temporary_deprioritized: Set[int], max_wait_s: float
+    ) -> None:
+        # Requests past the age cap go first in arrival order, so a large request
+        # waits at most about max_wait_s for smaller ones to keep overtaking it.
+        now = time.perf_counter()
+        waiting_queue.sort(
+            key=lambda r: (
+                now - r.time_stats.wait_queue_entry_time < max_wait_s,
+                r.rid in temporary_deprioritized,
+                (
+                    SchedulePolicy._admission_tokens(r)
+                    if now - r.time_stats.wait_queue_entry_time < max_wait_s
+                    else 0
+                ),
+                r.time_stats.wait_queue_entry_time,
+            )
         )
 
     @staticmethod

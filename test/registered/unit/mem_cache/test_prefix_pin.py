@@ -84,6 +84,7 @@ class TestPrefixPinRegistry(CustomTestCase):
         kv_fraction=0.5,
         mamba_fraction=0.5,
         admit_first=False,
+        admit_first_scope="pinned",
     ):
         self.tree = _CountingTree()
         self.clock = _Clock()
@@ -96,6 +97,7 @@ class TestPrefixPinRegistry(CustomTestCase):
             max_mamba_fraction=mamba_fraction,
             release_order=order,
             admit_first=admit_first,
+            admit_first_scope=admit_first_scope,
             clock=self.clock,
         )
 
@@ -158,6 +160,14 @@ class TestPrefixPinRegistry(CustomTestCase):
         # Once its pin is released, a next turn waits its turn like any other.
         reg.unpin("t2")
         self.assertEqual(reg.admission_order(queue), [next1, new, next2, stale])
+
+    def test_continuation_scope_moves_every_later_turn_first(self):
+        reg = self._registry(admit_first=True, admit_first_scope="continuation")
+        new = _req("new", finished=False)
+        later = _req("t3", finished=False, release_pin_of="t2")  # never pinned
+        queue = [new, later]
+        self.assertTrue(reg.admits_first(later))
+        self.assertEqual(reg.admission_order(queue), [later, new])
 
     def test_admission_order_is_fcfs_when_off(self):
         reg = self._registry()

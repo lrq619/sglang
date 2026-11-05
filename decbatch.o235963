@@ -1,0 +1,329 @@
+[17:03:01] preloading /data/projects/12004493/models/Qwen3.8-27B into page cache
+[17:03:08] launching servers
+Launching 2 server(s) on GPU(s): GPU-420c8255-d09b-e6b2-28cf-adf4a3dd5d78 GPU-00d6861f-9c9b-a2ed-87da-3280e97c7350
+ready: http://127.0.0.1:30000
+ready: http://127.0.0.1:30001
+[17:09:30] endpoints: http://127.0.0.1:30000,http://127.0.0.1:30001
+[2026-11-05 17:04:18] max_running_requests is capped to 22 by the mamba state cache (max_mamba_cache_size=112, 5 state slots per request). To raise it: increase --mamba-full-memory-ratio or --max-mamba-cache-size, or halve the state size with --mamba-ssm-dtype bfloat16.
+[2026-11-05 17:04:18] Mamba Cache is allocated. max_mamba_cache_size: 112, conv_state size: 0.31GB, ssm_state size: 15.89GB 
+[2026-11-05 17:04:18] KV Cache is allocated. dtype: torch.float8_e4m3fn, #tokens: 1666507, K size: 25.43 GB, V size: 25.43 GB
+[2026-11-05 17:08:59] max_total_num_tokens=1666507, chunked_prefill_size=32768, max_prefill_tokens=32768, max_running_requests=22, context_len=262144, available_gpu_mem=11.47 GB
+[2026-11-05 17:04:18] max_running_requests is capped to 22 by the mamba state cache (max_mamba_cache_size=112, 5 state slots per request). To raise it: increase --mamba-full-memory-ratio or --max-mamba-cache-size, or halve the state size with --mamba-ssm-dtype bfloat16.
+[2026-11-05 17:04:18] Mamba Cache is allocated. max_mamba_cache_size: 112, conv_state size: 0.31GB, ssm_state size: 15.89GB 
+[2026-11-05 17:04:18] KV Cache is allocated. dtype: torch.float8_e4m3fn, #tokens: 1666507, K size: 25.43 GB, V size: 25.43 GB
+[2026-11-05 17:08:59] max_total_num_tokens=1666507, chunked_prefill_size=32768, max_prefill_tokens=32768, max_running_requests=22, context_len=262144, available_gpu_mem=11.47 GB
+[17:09:30] bench start
+[1] http://127.0.0.1:30001 KV pool 1666507 tokens, lens [65536, 32768, 16384, 8192, 1024]
+[0] http://127.0.0.1:30000 KV pool 1666507 tokens, lens [98304]
+[1] N=65536 warmed 16 prompts in 150.6s
+[1] N= 65536 B=16 rep=-1 valid=1 tpot=28.62ms thr=559.1tok/s skew=197ms 
+[1] N= 65536 B= 3 rep= 0 valid=1 tpot=17.70ms thr=169.5tok/s skew=108ms 
+[1] N= 65536 B=11 rep= 0 valid=1 tpot=25.77ms thr=426.8tok/s skew=6ms 
+[1] N= 65536 B= 1 rep= 0 valid=1 tpot=15.54ms thr=64.3tok/s skew=0ms 
+[1] N= 65536 B=15 rep= 0 valid=1 tpot=28.49ms thr=526.5tok/s skew=413ms 
+[1] N= 65536 B= 7 rep= 0 valid=1 tpot=21.09ms thr=331.8tok/s skew=3ms 
+[1] N= 65536 B= 6 rep= 0 valid=1 tpot=20.38ms thr=294.4tok/s skew=3ms 
+[1] N= 65536 B= 4 rep= 0 valid=1 tpot=18.28ms thr=218.8tok/s skew=2ms 
+[1] N= 65536 B= 9 rep= 0 valid=1 tpot=22.98ms thr=391.7tok/s skew=3ms 
+[1] N= 65536 B= 8 rep= 0 valid=1 tpot=21.81ms thr=366.8tok/s skew=3ms 
+[1] N= 65536 B=12 rep= 0 valid=1 tpot=25.85ms thr=464.2tok/s skew=39ms 
+[1] N= 65536 B=16 rep= 0 valid=1 tpot=28.63ms thr=558.8tok/s skew=49ms 
+[1] N= 65536 B= 2 rep= 0 valid=1 tpot=16.49ms thr=121.3tok/s skew=0ms 
+[1] N= 65536 B=13 rep= 0 valid=1 tpot=28.19ms thr=461.1tok/s skew=40ms 
+[1] N= 65536 B=14 rep= 0 valid=1 tpot=28.33ms thr=494.2tok/s skew=40ms 
+[1] N= 65536 B=10 rep= 0 valid=1 tpot=23.82ms thr=419.9tok/s skew=3ms 
+[1] N= 65536 B= 5 rep= 0 valid=1 tpot=19.46ms thr=256.9tok/s skew=2ms 
+[1] N= 65536 B= 3 rep= 1 valid=1 tpot=17.50ms thr=171.4tok/s skew=2ms 
+[1] N= 65536 B= 4 rep= 1 valid=1 tpot=18.27ms thr=218.9tok/s skew=2ms 
+[1] N= 65536 B=12 rep= 1 valid=1 tpot=25.72ms thr=466.6tok/s skew=40ms 
+[1] N= 65536 B=11 rep= 1 valid=1 tpot=25.74ms thr=427.4tok/s skew=7ms 
+[1] N= 65536 B= 9 rep= 1 valid=1 tpot=22.99ms thr=391.5tok/s skew=3ms 
+[1] N= 65536 B= 2 rep= 1 valid=1 tpot=16.50ms thr=121.2tok/s skew=2ms 
+[1] N= 65536 B= 6 rep= 1 valid=1 tpot=20.47ms thr=293.2tok/s skew=2ms 
+[1] N= 65536 B= 5 rep= 1 valid=1 tpot=19.45ms thr=257.1tok/s skew=2ms 
+[1] N= 65536 B= 8 rep= 1 valid=1 tpot=21.90ms thr=365.2tok/s skew=3ms 
+[1] N= 65536 B=16 rep= 1 valid=1 tpot=28.63ms thr=558.8tok/s skew=49ms 
+[1] N= 65536 B=10 rep= 1 valid=1 tpot=24.16ms thr=414.0tok/s skew=3ms 
+[1] N= 65536 B=13 rep= 1 valid=1 tpot=28.18ms thr=461.3tok/s skew=39ms 
+[1] N= 65536 B= 7 rep= 1 valid=1 tpot=21.09ms thr=331.8tok/s skew=2ms 
+[1] N= 65536 B=14 rep= 1 valid=1 tpot=28.41ms thr=492.8tok/s skew=41ms 
+[1] N= 65536 B=15 rep= 1 valid=1 tpot=28.51ms thr=526.1tok/s skew=44ms 
+[1] N= 65536 B= 1 rep= 1 valid=1 tpot=15.54ms thr=64.4tok/s skew=0ms 
+[1] N= 65536 B= 6 rep= 2 valid=1 tpot=20.47ms thr=293.1tok/s skew=3ms 
+[1] N= 65536 B= 8 rep= 2 valid=1 tpot=21.91ms thr=365.1tok/s skew=3ms 
+[1] N= 65536 B= 3 rep= 2 valid=1 tpot=17.49ms thr=171.5tok/s skew=2ms 
+[1] N= 65536 B=13 rep= 2 valid=1 tpot=28.20ms thr=461.1tok/s skew=39ms 
+[1] N= 65536 B=10 rep= 2 valid=1 tpot=24.14ms thr=414.2tok/s skew=5ms 
+[1] N= 65536 B= 2 rep= 2 valid=1 tpot=16.50ms thr=121.2tok/s skew=2ms 
+[1] N= 65536 B= 5 rep= 2 valid=1 tpot=19.46ms thr=257.0tok/s skew=2ms 
+[0] N=98304 warmed 16 prompts in 273.2s
+[1] N= 65536 B=12 rep= 2 valid=1 tpot=25.61ms thr=468.5tok/s skew=39ms 
+[1] N= 65536 B=14 rep= 2 valid=1 tpot=28.41ms thr=492.8tok/s skew=50ms 
+[0] N= 98304 B=16 rep=-1 valid=1 tpot=35.06ms thr=456.4tok/s skew=2026ms 
+[1] N= 65536 B= 4 rep= 2 valid=1 tpot=18.28ms thr=218.9tok/s skew=2ms 
+[0] N= 98304 B=11 rep= 0 valid=1 tpot=30.52ms thr=360.4tok/s skew=16ms 
+[1] N= 65536 B= 7 rep= 2 valid=1 tpot=21.09ms thr=331.9tok/s skew=3ms 
+[1] N= 65536 B=15 rep= 2 valid=1 tpot=28.43ms thr=527.6tok/s skew=44ms 
+[0] N= 98304 B=15 rep= 0 valid=1 tpot=34.56ms thr=434.0tok/s skew=56ms 
+[1] N= 65536 B= 9 rep= 2 valid=1 tpot=22.94ms thr=392.3tok/s skew=3ms 
+[0] N= 98304 B= 6 rep= 0 valid=1 tpot=22.85ms thr=262.6tok/s skew=4ms 
+[0] N= 98304 B= 2 rep= 0 valid=1 tpot=17.25ms thr=115.9tok/s skew=2ms 
+[1] N= 65536 B=11 rep= 2 valid=1 tpot=25.79ms thr=426.5tok/s skew=355ms 
+[0] N= 98304 B=10 rep= 0 valid=1 tpot=28.12ms thr=355.6tok/s skew=15ms 
+[1] N= 65536 B=16 rep= 2 valid=1 tpot=28.64ms thr=558.7tok/s skew=45ms 
+[0] N= 98304 B= 3 rep= 0 valid=1 tpot=18.62ms thr=161.1tok/s skew=3ms 
+[1] N= 65536 B= 1 rep= 2 valid=1 tpot=15.54ms thr=64.3tok/s skew=0ms 
+[0] N= 98304 B= 4 rep= 0 valid=1 tpot=19.79ms thr=202.1tok/s skew=2ms 
+[0] N= 98304 B=12 rep= 0 valid=1 tpot=30.62ms thr=392.0tok/s skew=50ms 
+[0] N= 98304 B=14 rep= 0 valid=1 tpot=34.42ms thr=406.8tok/s skew=56ms 
+[0] N= 98304 B= 8 rep= 0 valid=1 tpot=24.93ms thr=320.9tok/s skew=2ms 
+[0] N= 98304 B= 9 rep= 0 valid=1 tpot=26.35ms thr=341.5tok/s skew=10ms 
+[0] N= 98304 B= 5 rep= 0 valid=1 tpot=21.52ms thr=232.3tok/s skew=3ms 
+[0] N= 98304 B= 1 rep= 0 valid=1 tpot=15.95ms thr=62.7tok/s skew=0ms 
+[0] N= 98304 B= 7 rep= 0 valid=1 tpot=23.79ms thr=294.3tok/s skew=5ms 
+[0] N= 98304 B=16 rep= 0 valid=1 tpot=35.10ms thr=455.9tok/s skew=65ms 
+[0] N= 98304 B=13 rep= 0 valid=1 tpot=34.16ms thr=380.6tok/s skew=44ms 
+[0] N= 98304 B= 4 rep= 1 valid=1 tpot=19.80ms thr=202.1tok/s skew=2ms 
+[0] N= 98304 B= 8 rep= 1 valid=1 tpot=24.92ms thr=321.0tok/s skew=8ms 
+[0] N= 98304 B=14 rep= 1 valid=1 tpot=34.43ms thr=406.6tok/s skew=57ms 
+[0] N= 98304 B=12 rep= 1 valid=1 tpot=30.62ms thr=391.9tok/s skew=39ms 
+[0] N= 98304 B= 7 rep= 1 valid=1 tpot=23.78ms thr=294.3tok/s skew=6ms 
+[0] N= 98304 B= 6 rep= 1 valid=1 tpot=22.82ms thr=263.0tok/s skew=3ms 
+[0] N= 98304 B= 1 rep= 1 valid=1 tpot=15.91ms thr=62.9tok/s skew=0ms 
+[1] N=32768 warmed 16 prompts in 58.5s
+[0] N= 98304 B=11 rep= 1 valid=1 tpot=30.21ms thr=364.1tok/s skew=16ms 
+[1] N= 32768 B=16 rep=-1 valid=1 tpot=22.64ms thr=706.8tok/s skew=128ms 
+[1] N= 32768 B=13 rep= 0 valid=1 tpot=22.29ms thr=583.3tok/s skew=3ms 
+[0] N= 98304 B=15 rep= 1 valid=1 tpot=34.58ms thr=433.8tok/s skew=62ms 
+[1] N= 32768 B= 9 rep= 0 valid=1 tpot=19.57ms thr=459.9tok/s skew=2ms 
+[0] N= 98304 B= 9 rep= 1 valid=1 tpot=26.36ms thr=341.5tok/s skew=5ms 
+[1] N= 32768 B=14 rep= 0 valid=1 tpot=22.45ms thr=623.7tok/s skew=3ms 
+[0] N= 98304 B= 5 rep= 1 valid=1 tpot=21.55ms thr=232.0tok/s skew=2ms 
+[1] N= 32768 B=10 rep= 0 valid=1 tpot=20.18ms thr=495.6tok/s skew=3ms 
+[1] N= 32768 B= 3 rep= 0 valid=1 tpot=16.38ms thr=183.1tok/s skew=2ms 
+[0] N= 98304 B=16 rep= 1 valid=1 tpot=35.09ms thr=455.9tok/s skew=61ms 
+[1] N= 32768 B= 6 rep= 0 valid=1 tpot=17.92ms thr=334.8tok/s skew=3ms 
+[0] N= 98304 B= 2 rep= 1 valid=1 tpot=17.25ms thr=116.0tok/s skew=0ms 
+[1] N= 32768 B=16 rep= 0 valid=1 tpot=22.64ms thr=706.7tok/s skew=3ms 
+[1] N= 32768 B= 2 rep= 0 valid=1 tpot=15.73ms thr=127.2tok/s skew=2ms 
+[0] N= 98304 B=13 rep= 1 valid=1 tpot=33.98ms thr=382.6tok/s skew=49ms 
+[1] N= 32768 B= 7 rep= 0 valid=1 tpot=18.46ms thr=379.1tok/s skew=3ms 
+[0] N= 98304 B= 3 rep= 1 valid=1 tpot=18.62ms thr=161.1tok/s skew=0ms 
+[1] N= 32768 B= 1 rep= 0 valid=1 tpot=15.14ms thr=66.0tok/s skew=0ms 
+[1] N= 32768 B= 5 rep= 0 valid=1 tpot=17.51ms thr=285.5tok/s skew=2ms 
+[0] N= 98304 B=10 rep= 1 valid=1 tpot=28.13ms thr=355.5tok/s skew=15ms 
+[1] N= 32768 B= 8 rep= 0 valid=1 tpot=18.89ms thr=423.4tok/s skew=3ms 
+[0] N= 98304 B= 2 rep= 2 valid=1 tpot=17.24ms thr=116.0tok/s skew=2ms 
+[1] N= 32768 B=15 rep= 0 valid=1 tpot=22.54ms thr=665.6tok/s skew=3ms 
+[0] N= 98304 B=16 rep= 2 valid=1 tpot=35.10ms thr=455.9tok/s skew=61ms 
+[1] N= 32768 B=11 rep= 0 valid=1 tpot=21.07ms thr=522.0tok/s skew=3ms 
+[1] N= 32768 B= 4 rep= 0 valid=1 tpot=16.82ms thr=237.9tok/s skew=2ms 
+[0] N= 98304 B=14 rep= 2 valid=1 tpot=34.24ms thr=408.9tok/s skew=45ms 
+[1] N= 32768 B=12 rep= 0 valid=1 tpot=20.99ms thr=571.7tok/s skew=3ms 
+[0] N= 98304 B= 1 rep= 2 valid=1 tpot=15.89ms thr=62.9tok/s skew=0ms 
+[1] N= 32768 B= 6 rep= 1 valid=1 tpot=18.05ms thr=332.3tok/s skew=2ms 
+[0] N= 98304 B= 3 rep= 2 valid=1 tpot=18.54ms thr=161.8tok/s skew=2ms 
+[1] N= 32768 B=15 rep= 1 valid=1 tpot=22.54ms thr=665.5tok/s skew=3ms 
+[0] N= 98304 B= 5 rep= 2 valid=1 tpot=21.54ms thr=232.1tok/s skew=2ms 
+[1] N= 32768 B= 3 rep= 1 valid=1 tpot=16.38ms thr=183.1tok/s skew=2ms 
+[1] N= 32768 B= 2 rep= 1 valid=1 tpot=15.72ms thr=127.2tok/s skew=2ms 
+[0] N= 98304 B=15 rep= 2 valid=1 tpot=34.60ms thr=433.5tok/s skew=57ms 
+[1] N= 32768 B=12 rep= 1 valid=1 tpot=21.13ms thr=567.9tok/s skew=3ms 
+[1] N= 32768 B= 1 rep= 1 valid=1 tpot=15.15ms thr=66.0tok/s skew=0ms 
+[0] N= 98304 B=13 rep= 2 valid=1 tpot=34.06ms thr=381.7tok/s skew=28ms 
+[1] N= 32768 B=10 rep= 1 valid=1 tpot=20.12ms thr=497.0tok/s skew=3ms 
+[0] N= 98304 B= 8 rep= 2 valid=1 tpot=24.93ms thr=320.9tok/s skew=3ms 
+[1] N= 32768 B= 7 rep= 1 valid=1 tpot=18.46ms thr=379.1tok/s skew=2ms 
+[0] N= 98304 B= 9 rep= 2 valid=1 tpot=26.36ms thr=341.4tok/s skew=11ms 
+[1] N= 32768 B= 8 rep= 1 valid=1 tpot=18.84ms thr=424.7tok/s skew=2ms 
+[0] N= 98304 B= 4 rep= 2 valid=1 tpot=19.80ms thr=202.1tok/s skew=2ms 
+[1] N= 32768 B=13 rep= 1 valid=1 tpot=22.28ms thr=583.5tok/s skew=3ms 
+[1] N= 32768 B= 5 rep= 1 valid=1 tpot=17.29ms thr=289.1tok/s skew=2ms 
+[0] N= 98304 B=11 rep= 2 valid=1 tpot=30.52ms thr=360.4tok/s skew=15ms 
+[1] N= 32768 B= 4 rep= 1 valid=1 tpot=16.82ms thr=237.9tok/s skew=2ms 
+[0] N= 98304 B=10 rep= 2 valid=1 tpot=28.12ms thr=355.6tok/s skew=14ms 
+[1] N= 32768 B=11 rep= 1 valid=1 tpot=21.04ms thr=522.7tok/s skew=3ms 
+[0] N= 98304 B= 6 rep= 2 valid=1 tpot=22.85ms thr=262.6tok/s skew=3ms 
+[1] N= 32768 B=16 rep= 1 valid=1 tpot=22.64ms thr=706.8tok/s skew=3ms 
+[1] N= 32768 B= 9 rep= 1 valid=1 tpot=19.57ms thr=459.9tok/s skew=3ms 
+[0] N= 98304 B= 7 rep= 2 valid=1 tpot=23.82ms thr=293.8tok/s skew=6ms 
+[1] N= 32768 B=14 rep= 1 valid=1 tpot=22.26ms thr=629.0tok/s skew=7ms 
+[0] N= 98304 B=12 rep= 2 valid=1 tpot=30.61ms thr=392.0tok/s skew=18ms 
+[1] N= 32768 B= 7 rep= 2 valid=1 tpot=18.39ms thr=380.6tok/s skew=2ms 
+[1] N= 32768 B= 4 rep= 2 valid=1 tpot=16.81ms thr=237.9tok/s skew=2ms 
+[1] N= 32768 B=16 rep= 2 valid=1 tpot=22.64ms thr=706.7tok/s skew=3ms 
+[1] N= 32768 B=12 rep= 2 valid=1 tpot=21.10ms thr=568.8tok/s skew=3ms 
+[1] N= 32768 B= 1 rep= 2 valid=1 tpot=15.15ms thr=66.0tok/s skew=0ms 
+[1] N= 32768 B= 5 rep= 2 valid=1 tpot=17.33ms thr=288.5tok/s skew=3ms 
+[1] N= 32768 B=10 rep= 2 valid=1 tpot=20.18ms thr=495.6tok/s skew=3ms 
+[1] N= 32768 B= 8 rep= 2 valid=1 tpot=18.87ms thr=424.0tok/s skew=2ms 
+[1] N= 32768 B= 2 rep= 2 valid=1 tpot=15.72ms thr=127.2tok/s skew=2ms 
+[1] N= 32768 B=13 rep= 2 valid=1 tpot=22.24ms thr=584.6tok/s skew=3ms 
+[1] N= 32768 B=15 rep= 2 valid=1 tpot=22.53ms thr=665.7tok/s skew=3ms 
+[1] N= 32768 B= 9 rep= 2 valid=1 tpot=19.57ms thr=459.9tok/s skew=3ms 
+[1] N= 32768 B= 6 rep= 2 valid=1 tpot=18.05ms thr=332.4tok/s skew=2ms 
+[1] N= 32768 B= 3 rep= 2 valid=1 tpot=16.38ms thr=183.2tok/s skew=2ms 
+[1] N= 32768 B=11 rep= 2 valid=1 tpot=21.07ms thr=522.1tok/s skew=3ms 
+[1] N= 32768 B=14 rep= 2 valid=1 tpot=22.45ms thr=623.6tok/s skew=3ms 
+[1] N=16384 warmed 16 prompts in 24.8s
+[1] N= 16384 B=16 rep=-1 valid=1 tpot=19.63ms thr=815.1tok/s skew=28ms 
+[1] N= 16384 B= 6 rep= 0 valid=1 tpot=16.87ms thr=355.8tok/s skew=2ms 
+[1] N= 16384 B=14 rep= 0 valid=1 tpot=19.45ms thr=719.9tok/s skew=4ms 
+[1] N= 16384 B= 4 rep= 0 valid=1 tpot=16.08ms thr=248.7tok/s skew=2ms 
+[1] N= 16384 B=11 rep= 0 valid=1 tpot=18.72ms thr=587.6tok/s skew=3ms 
+[1] N= 16384 B= 9 rep= 0 valid=1 tpot=17.95ms thr=501.5tok/s skew=2ms 
+[1] N= 16384 B=10 rep= 0 valid=1 tpot=18.29ms thr=546.7tok/s skew=2ms 
+[1] N= 16384 B= 2 rep= 0 valid=1 tpot=15.30ms thr=130.7tok/s skew=2ms 
+[1] N= 16384 B= 3 rep= 0 valid=1 tpot=15.83ms thr=189.5tok/s skew=2ms 
+[1] N= 16384 B= 7 rep= 0 valid=1 tpot=17.15ms thr=408.1tok/s skew=2ms 
+[1] N= 16384 B= 5 rep= 0 valid=1 tpot=16.52ms thr=302.7tok/s skew=2ms 
+[1] N= 16384 B=13 rep= 0 valid=1 tpot=19.33ms thr=672.6tok/s skew=2ms 
+[1] N= 16384 B=15 rep= 0 valid=1 tpot=19.42ms thr=772.6tok/s skew=3ms 
+[1] N= 16384 B= 1 rep= 0 valid=1 tpot=14.86ms thr=67.3tok/s skew=0ms 
+[1] N= 16384 B=16 rep= 0 valid=1 tpot=19.63ms thr=815.1tok/s skew=3ms 
+[1] N= 16384 B= 8 rep= 0 valid=1 tpot=17.44ms thr=458.7tok/s skew=2ms 
+[1] N= 16384 B=12 rep= 0 valid=1 tpot=18.68ms thr=642.3tok/s skew=3ms 
+[1] N= 16384 B= 7 rep= 1 valid=1 tpot=17.17ms thr=407.7tok/s skew=3ms 
+[1] N= 16384 B=11 rep= 1 valid=1 tpot=18.71ms thr=587.9tok/s skew=3ms 
+[1] N= 16384 B= 3 rep= 1 valid=1 tpot=15.84ms thr=189.4tok/s skew=2ms 
+[1] N= 16384 B= 2 rep= 1 valid=1 tpot=15.34ms thr=130.4tok/s skew=2ms 
+[1] N= 16384 B=16 rep= 1 valid=1 tpot=19.63ms thr=815.1tok/s skew=3ms 
+[1] N= 16384 B=12 rep= 1 valid=1 tpot=18.78ms thr=639.1tok/s skew=3ms 
+[1] N= 16384 B= 4 rep= 1 valid=1 tpot=16.02ms thr=249.7tok/s skew=2ms 
+[1] N= 16384 B= 1 rep= 1 valid=1 tpot=14.93ms thr=67.0tok/s skew=0ms 
+[1] N= 16384 B=15 rep= 1 valid=1 tpot=19.54ms thr=767.6tok/s skew=3ms 
+[1] N= 16384 B= 5 rep= 1 valid=1 tpot=16.52ms thr=302.6tok/s skew=2ms 
+[1] N= 16384 B= 8 rep= 1 valid=1 tpot=17.35ms thr=461.0tok/s skew=3ms 
+[1] N= 16384 B=14 rep= 1 valid=1 tpot=19.45ms thr=719.6tok/s skew=3ms 
+[1] N= 16384 B=10 rep= 1 valid=1 tpot=18.29ms thr=546.8tok/s skew=2ms 
+[1] N= 16384 B= 6 rep= 1 valid=1 tpot=16.87ms thr=355.7tok/s skew=2ms 
+[1] N= 16384 B= 9 rep= 1 valid=1 tpot=17.94ms thr=501.6tok/s skew=2ms 
+[1] N= 16384 B=13 rep= 1 valid=1 tpot=19.33ms thr=672.5tok/s skew=3ms 
+[1] N= 16384 B= 5 rep= 2 valid=1 tpot=16.52ms thr=302.6tok/s skew=2ms 
+[1] N= 16384 B= 2 rep= 2 valid=1 tpot=15.34ms thr=130.4tok/s skew=2ms 
+[1] N= 16384 B=15 rep= 2 valid=1 tpot=19.51ms thr=768.8tok/s skew=3ms 
+[1] N= 16384 B=13 rep= 2 valid=1 tpot=19.27ms thr=674.8tok/s skew=3ms 
+[1] N= 16384 B=16 rep= 2 valid=1 tpot=19.63ms thr=815.1tok/s skew=3ms 
+[1] N= 16384 B= 3 rep= 2 valid=1 tpot=15.83ms thr=189.5tok/s skew=2ms 
+[1] N= 16384 B=12 rep= 2 valid=1 tpot=18.78ms thr=639.1tok/s skew=3ms 
+[1] N= 16384 B= 7 rep= 2 valid=1 tpot=17.18ms thr=407.3tok/s skew=2ms 
+[1] N= 16384 B=11 rep= 2 valid=1 tpot=18.72ms thr=587.6tok/s skew=3ms 
+[1] N= 16384 B= 4 rep= 2 valid=1 tpot=16.08ms thr=248.7tok/s skew=2ms 
+[1] N= 16384 B= 9 rep= 2 valid=1 tpot=17.94ms thr=501.7tok/s skew=3ms 
+[1] N= 16384 B=10 rep= 2 valid=1 tpot=18.29ms thr=546.6tok/s skew=3ms 
+[1] N= 16384 B= 6 rep= 2 valid=1 tpot=16.87ms thr=355.7tok/s skew=2ms 
+[1] N= 16384 B= 8 rep= 2 valid=1 tpot=17.44ms thr=458.7tok/s skew=3ms 
+[1] N= 16384 B= 1 rep= 2 valid=1 tpot=14.93ms thr=67.0tok/s skew=0ms 
+[1] N= 16384 B=14 rep= 2 valid=1 tpot=19.35ms thr=723.3tok/s skew=3ms 
+[1] N=8192 warmed 16 prompts in 11.4s
+[1] N=  8192 B=16 rep=-1 valid=1 tpot=18.18ms thr=880.1tok/s skew=3ms 
+[1] N=  8192 B= 2 rep= 0 valid=1 tpot=15.13ms thr=132.2tok/s skew=2ms 
+[1] N=  8192 B=12 rep= 0 valid=1 tpot=17.55ms thr=683.7tok/s skew=3ms 
+[1] N=  8192 B= 6 rep= 0 valid=1 tpot=16.32ms thr=367.6tok/s skew=2ms 
+[1] N=  8192 B= 8 rep= 0 valid=1 tpot=16.72ms thr=478.4tok/s skew=3ms 
+[1] N=  8192 B= 5 rep= 0 valid=1 tpot=16.06ms thr=311.3tok/s skew=2ms 
+[1] N=  8192 B=14 rep= 0 valid=1 tpot=17.96ms thr=779.6tok/s skew=3ms 
+[1] N=  8192 B= 7 rep= 0 valid=1 tpot=16.55ms thr=423.0tok/s skew=2ms 
+[1] N=  8192 B=16 rep= 0 valid=1 tpot=18.19ms thr=879.8tok/s skew=3ms 
+[1] N=  8192 B= 9 rep= 0 valid=1 tpot=17.14ms thr=525.0tok/s skew=3ms 
+[1] N=  8192 B= 3 rep= 0 valid=1 tpot=15.54ms thr=193.0tok/s skew=2ms 
+[1] N=  8192 B=11 rep= 0 valid=1 tpot=17.57ms thr=626.2tok/s skew=3ms 
+[1] N=  8192 B= 4 rep= 0 valid=1 tpot=15.71ms thr=254.6tok/s skew=2ms 
+[1] N=  8192 B=13 rep= 0 valid=1 tpot=17.92ms thr=725.5tok/s skew=3ms 
+[1] N=  8192 B= 1 rep= 0 valid=1 tpot=14.81ms thr=67.5tok/s skew=0ms 
+[1] N=  8192 B=10 rep= 0 valid=1 tpot=17.32ms thr=577.4tok/s skew=3ms 
+[1] N=  8192 B=15 rep= 0 valid=1 tpot=18.11ms thr=828.3tok/s skew=3ms 
+[1] N=  8192 B=10 rep= 1 valid=1 tpot=17.31ms thr=577.6tok/s skew=3ms 
+[1] N=  8192 B=12 rep= 1 valid=1 tpot=17.62ms thr=681.0tok/s skew=3ms 
+[1] N=  8192 B= 6 rep= 1 valid=1 tpot=16.32ms thr=367.6tok/s skew=2ms 
+[1] N=  8192 B=16 rep= 1 valid=1 tpot=18.19ms thr=879.8tok/s skew=3ms 
+[1] N=  8192 B=13 rep= 1 valid=1 tpot=17.83ms thr=729.3tok/s skew=3ms 
+[1] N=  8192 B= 9 rep= 1 valid=1 tpot=17.14ms thr=525.2tok/s skew=2ms 
+[1] N=  8192 B= 7 rep= 1 valid=1 tpot=16.55ms thr=423.0tok/s skew=3ms 
+[1] N=  8192 B= 2 rep= 1 valid=1 tpot=15.09ms thr=132.5tok/s skew=2ms 
+[1] N=  8192 B=11 rep= 1 valid=1 tpot=17.57ms thr=626.1tok/s skew=3ms 
+[1] N=  8192 B= 4 rep= 1 valid=1 tpot=15.68ms thr=255.0tok/s skew=2ms 
+[1] N=  8192 B= 5 rep= 1 valid=1 tpot=15.97ms thr=313.0tok/s skew=2ms 
+[1] N=  8192 B=15 rep= 1 valid=1 tpot=18.11ms thr=828.5tok/s skew=3ms 
+[1] N=  8192 B= 8 rep= 1 valid=1 tpot=16.72ms thr=478.4tok/s skew=2ms 
+[1] N=  8192 B= 1 rep= 1 valid=1 tpot=14.74ms thr=67.8tok/s skew=0ms 
+[1] N=  8192 B=14 rep= 1 valid=1 tpot=18.02ms thr=776.8tok/s skew=3ms 
+[1] N=  8192 B= 3 rep= 1 valid=1 tpot=15.54ms thr=193.0tok/s skew=2ms 
+[1] N=  8192 B= 2 rep= 2 valid=1 tpot=15.13ms thr=132.2tok/s skew=2ms 
+[1] N=  8192 B= 7 rep= 2 valid=1 tpot=16.55ms thr=423.0tok/s skew=3ms 
+[1] N=  8192 B= 1 rep= 2 valid=1 tpot=14.66ms thr=68.2tok/s skew=0ms 
+[1] N=  8192 B=13 rep= 2 valid=1 tpot=17.92ms thr=725.5tok/s skew=3ms 
+[1] N=  8192 B= 4 rep= 2 valid=1 tpot=15.71ms thr=254.6tok/s skew=2ms 
+[1] N=  8192 B=12 rep= 2 valid=1 tpot=17.62ms thr=681.0tok/s skew=3ms 
+[1] N=  8192 B=16 rep= 2 valid=1 tpot=18.11ms thr=883.3tok/s skew=3ms 
+[1] N=  8192 B= 8 rep= 2 valid=1 tpot=16.72ms thr=478.4tok/s skew=2ms 
+[1] N=  8192 B=10 rep= 2 valid=1 tpot=17.31ms thr=577.7tok/s skew=3ms 
+[1] N=  8192 B=14 rep= 2 valid=1 tpot=18.02ms thr=777.0tok/s skew=3ms 
+[1] N=  8192 B=11 rep= 2 valid=1 tpot=17.57ms thr=626.1tok/s skew=3ms 
+[1] N=  8192 B=15 rep= 2 valid=1 tpot=18.11ms thr=828.2tok/s skew=3ms 
+[1] N=  8192 B= 9 rep= 2 valid=1 tpot=17.14ms thr=525.1tok/s skew=2ms 
+[1] N=  8192 B= 5 rep= 2 valid=1 tpot=16.06ms thr=311.2tok/s skew=2ms 
+[1] N=  8192 B= 3 rep= 2 valid=1 tpot=15.36ms thr=195.3tok/s skew=2ms 
+[1] N=  8192 B= 6 rep= 2 valid=1 tpot=16.32ms thr=367.6tok/s skew=2ms 
+[1] N=1024 warmed 16 prompts in 1.4s
+[1] N=  1024 B=16 rep=-1 valid=1 tpot=16.89ms thr=947.4tok/s skew=2ms 
+[1] N=  1024 B= 3 rep= 0 valid=1 tpot=15.18ms thr=197.6tok/s skew=2ms 
+[1] N=  1024 B=14 rep= 0 valid=1 tpot=16.62ms thr=842.3tok/s skew=3ms 
+[1] N=  1024 B=13 rep= 0 valid=1 tpot=16.65ms thr=780.7tok/s skew=3ms 
+[1] N=  1024 B=16 rep= 0 valid=1 tpot=16.88ms thr=947.8tok/s skew=3ms 
+[1] N=  1024 B= 1 rep= 0 valid=1 tpot=14.72ms thr=67.9tok/s skew=0ms 
+[1] N=  1024 B= 8 rep= 0 valid=1 tpot=15.91ms thr=502.9tok/s skew=2ms 
+[1] N=  1024 B= 9 rep= 0 valid=1 tpot=16.37ms thr=549.8tok/s skew=2ms 
+[1] N=  1024 B=12 rep= 0 valid=1 tpot=16.60ms thr=722.9tok/s skew=2ms 
+[1] N=  1024 B=11 rep= 0 valid=1 tpot=16.55ms thr=664.5tok/s skew=3ms 
+[1] N=  1024 B= 2 rep= 0 valid=1 tpot=14.86ms thr=134.6tok/s skew=2ms 
+[1] N=  1024 B= 5 rep= 0 valid=1 tpot=15.56ms thr=321.3tok/s skew=2ms 
+[1] N=  1024 B= 4 rep= 0 valid=1 tpot=15.29ms thr=261.6tok/s skew=2ms 
+[1] N=  1024 B=15 rep= 0 valid=1 tpot=16.83ms thr=891.4tok/s skew=3ms 
+[1] N=  1024 B= 6 rep= 0 valid=1 tpot=15.74ms thr=381.2tok/s skew=2ms 
+[1] N=  1024 B= 7 rep= 0 valid=1 tpot=15.87ms thr=441.0tok/s skew=2ms 
+[1] N=  1024 B=10 rep= 0 valid=1 tpot=16.47ms thr=607.3tok/s skew=2ms 
+[1] N=  1024 B= 2 rep= 1 valid=1 tpot=14.91ms thr=134.1tok/s skew=2ms 
+[1] N=  1024 B=13 rep= 1 valid=1 tpot=16.67ms thr=780.1tok/s skew=3ms 
+[1] N=  1024 B=15 rep= 1 valid=1 tpot=16.82ms thr=891.6tok/s skew=3ms 
+[1] N=  1024 B=14 rep= 1 valid=1 tpot=16.75ms thr=835.7tok/s skew=3ms 
+[1] N=  1024 B=16 rep= 1 valid=1 tpot=16.89ms thr=947.1tok/s skew=3ms 
+[1] N=  1024 B=10 rep= 1 valid=1 tpot=16.46ms thr=607.4tok/s skew=2ms 
+[1] N=  1024 B= 6 rep= 1 valid=1 tpot=15.68ms thr=382.7tok/s skew=2ms 
+[1] N=  1024 B= 4 rep= 1 valid=1 tpot=15.29ms thr=261.5tok/s skew=2ms 
+[1] N=  1024 B=11 rep= 1 valid=1 tpot=16.56ms thr=664.4tok/s skew=3ms 
+[1] N=  1024 B= 7 rep= 1 valid=1 tpot=15.87ms thr=441.0tok/s skew=3ms 
+[1] N=  1024 B= 9 rep= 1 valid=1 tpot=16.12ms thr=558.3tok/s skew=2ms 
+[1] N=  1024 B= 8 rep= 1 valid=1 tpot=16.04ms thr=498.8tok/s skew=2ms 
+[1] N=  1024 B= 3 rep= 1 valid=1 tpot=15.20ms thr=197.3tok/s skew=2ms 
+[1] N=  1024 B=12 rep= 1 valid=1 tpot=16.60ms thr=722.9tok/s skew=3ms 
+[1] N=  1024 B= 1 rep= 1 valid=1 tpot=14.70ms thr=68.0tok/s skew=0ms 
+[1] N=  1024 B= 5 rep= 1 valid=1 tpot=15.56ms thr=321.3tok/s skew=2ms 
+[1] N=  1024 B=12 rep= 2 valid=1 tpot=16.60ms thr=722.9tok/s skew=3ms 
+[1] N=  1024 B= 4 rep= 2 valid=1 tpot=15.29ms thr=261.6tok/s skew=2ms 
+[1] N=  1024 B= 8 rep= 2 valid=1 tpot=15.96ms thr=501.2tok/s skew=2ms 
+[1] N=  1024 B= 3 rep= 2 valid=1 tpot=15.20ms thr=197.3tok/s skew=2ms 
+[1] N=  1024 B= 9 rep= 2 valid=1 tpot=16.37ms thr=549.8tok/s skew=2ms 
+[1] N=  1024 B=14 rep= 2 valid=1 tpot=16.76ms thr=835.5tok/s skew=3ms 
+[1] N=  1024 B= 2 rep= 2 valid=1 tpot=14.97ms thr=133.6tok/s skew=2ms 
+[1] N=  1024 B= 5 rep= 2 valid=1 tpot=15.56ms thr=321.3tok/s skew=2ms 
+[1] N=  1024 B= 1 rep= 2 valid=1 tpot=14.73ms thr=67.9tok/s skew=0ms 
+[1] N=  1024 B= 7 rep= 2 valid=1 tpot=15.87ms thr=441.1tok/s skew=2ms 
+[1] N=  1024 B=15 rep= 2 valid=1 tpot=16.83ms thr=891.4tok/s skew=3ms 
+[1] N=  1024 B= 6 rep= 2 valid=1 tpot=15.71ms thr=381.9tok/s skew=2ms 
+[1] N=  1024 B=16 rep= 2 valid=1 tpot=16.90ms thr=947.0tok/s skew=3ms 
+[1] N=  1024 B=10 rep= 2 valid=1 tpot=16.47ms thr=607.3tok/s skew=2ms 
+[1] N=  1024 B=11 rep= 2 valid=1 tpot=16.56ms thr=664.4tok/s skew=2ms 
+[1] N=  1024 B=13 rep= 2 valid=1 tpot=16.66ms thr=780.2tok/s skew=3ms 
+[17:23:44] bench exit=0
+[17:23:44] server log: 0 retraction events
+294 trials, 0 invalid 
+  N     B=1     B=2     B=4     B=8     B=12    B=16   
+   1K  1.00    1.97    3.85    7.37    10.64   13.94  
+   8K  1.00    1.95    3.75    7.05    10.05   12.98  
+  16K  1.00    1.94    3.71    6.85    9.54    12.15  
+  32K  1.00    1.93    3.60    6.42    8.63    10.71  
+  64K  1.00    1.88    3.40    5.68    7.25    8.68   
+  96K  1.00    1.85    3.22    5.11    6.24    7.26   
+[17:23:50] done: /home/users/ntu/ruiqi003/scratch/logs/decbatch_20261105_170117
+[17:24:00] cleanup done

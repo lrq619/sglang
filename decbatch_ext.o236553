@@ -1,0 +1,66 @@
+[20:11:16] config N=32768 slots=152 B=1/4/8/12/16/20/24/28/32/36/40/44/48
+[20:11:22] preloading /data/projects/12004493/models/Qwen3.8-27B into page cache
+[20:11:25] launching servers
+Launching 1 server(s) on GPU(s): GPU-baefda11-bef3-f3cb-5a4b-1ab39a74fbf1
+ready: http://127.0.0.1:30000
+[20:12:20] endpoints: http://127.0.0.1:30000
+[2026-11-05 20:11:57] max_running_requests is capped to 50 by the mamba state cache (max_mamba_cache_size=152, 3 state slots per request). To raise it: increase --mamba-full-memory-ratio or --max-mamba-cache-size, or halve the state size with --mamba-ssm-dtype bfloat16.
+[2026-11-05 20:11:57] Mamba Cache is allocated. max_mamba_cache_size: 152, conv_state size: 0.42GB, ssm_state size: 21.52GB 
+[2026-11-05 20:11:57] KV Cache is allocated. dtype: torch.float8_e4m3fn, #tokens: 1706642, K size: 26.04 GB, V size: 26.04 GB
+[2026-11-05 20:12:01] max_total_num_tokens=1706642, chunked_prefill_size=32768, max_prefill_tokens=32768, max_running_requests=50, context_len=262144, available_gpu_mem=13.45 GB
+[20:12:21] bench start
+[0] http://127.0.0.1:30000 KV pool 1706642 tokens, lens [32768]
+[0] N=32768 warmed 48 prompts in 138.6s
+[0] N= 32768 B=48 rep=-1 try=0 valid=1 tpot=39.38ms thr=1219.0tok/s skew=337ms 
+[0] N= 32768 B= 4 rep= 0 try=0 valid=0 tpot=16.52ms thr=242.1tok/s skew=0ms prefix hit 0 < 32704
+[0] N= 32768 B= 4 rep= 0 try=1 valid=1 tpot=16.53ms thr=242.0tok/s skew=2ms 
+[0] N= 32768 B=40 rep= 0 try=0 valid=0 tpot=37.77ms thr=1059.0tok/s skew=80ms evicted 512 tokens
+[0] N= 32768 B=40 rep= 0 try=1 valid=1 tpot=37.67ms thr=1061.8tok/s skew=71ms 
+[0] N= 32768 B=36 rep= 0 try=0 valid=1 tpot=37.45ms thr=961.4tok/s skew=5ms 
+[0] N= 32768 B=20 rep= 0 try=0 valid=1 tpot=26.89ms thr=743.7tok/s skew=4ms 
+[0] N= 32768 B=44 rep= 0 try=0 valid=0 tpot=38.59ms thr=1140.1tok/s skew=12060ms prefix hit 0 < 32704
+[0] N= 32768 B=44 rep= 0 try=1 valid=1 tpot=38.56ms thr=1141.0tok/s skew=143ms 
+[0] N= 32768 B= 8 rep= 0 try=0 valid=1 tpot=18.32ms thr=436.6tok/s skew=3ms 
+[0] N= 32768 B=12 rep= 0 try=0 valid=1 tpot=22.61ms thr=530.7tok/s skew=3ms 
+[0] N= 32768 B=28 rep= 0 try=0 valid=1 tpot=27.85ms thr=1005.6tok/s skew=114ms 
+[0] N= 32768 B=32 rep= 0 try=0 valid=1 tpot=28.60ms thr=1119.0tok/s skew=56ms 
+[0] N= 32768 B=16 rep= 0 try=0 valid=1 tpot=21.43ms thr=746.7tok/s skew=3ms 
+[0] N= 32768 B= 1 rep= 0 try=0 valid=1 tpot=14.94ms thr=66.9tok/s skew=0ms 
+[0] N= 32768 B=48 rep= 0 try=0 valid=0 tpot=39.41ms thr=1217.9tok/s skew=11579ms prefix hit 0 < 32704
+[0] N= 32768 B=48 rep= 0 try=1 valid=1 tpot=39.54ms thr=1214.0tok/s skew=104ms 
+[0] N= 32768 B=24 rep= 0 try=0 valid=1 tpot=27.21ms thr=882.1tok/s skew=3ms 
+[0] N= 32768 B=36 rep= 1 try=0 valid=1 tpot=37.44ms thr=961.6tok/s skew=67ms 
+[0] N= 32768 B= 1 rep= 1 try=0 valid=1 tpot=14.96ms thr=66.8tok/s skew=0ms 
+[0] N= 32768 B=12 rep= 1 try=0 valid=1 tpot=22.61ms thr=530.8tok/s skew=3ms 
+[0] N= 32768 B=48 rep= 1 try=0 valid=1 tpot=39.57ms thr=1213.1tok/s skew=75ms 
+[0] N= 32768 B=24 rep= 1 try=0 valid=1 tpot=27.20ms thr=882.4tok/s skew=3ms 
+[0] N= 32768 B=20 rep= 1 try=0 valid=1 tpot=26.91ms thr=743.2tok/s skew=3ms 
+[0] N= 32768 B=28 rep= 1 try=0 valid=1 tpot=27.86ms thr=1005.1tok/s skew=5ms 
+[0] N= 32768 B=40 rep= 1 try=0 valid=1 tpot=37.76ms thr=1059.4tok/s skew=68ms 
+[0] N= 32768 B= 4 rep= 1 try=0 valid=1 tpot=16.53ms thr=242.0tok/s skew=2ms 
+[0] N= 32768 B=44 rep= 1 try=0 valid=1 tpot=38.64ms thr=1138.6tok/s skew=69ms 
+[0] N= 32768 B=16 rep= 1 try=0 valid=1 tpot=21.53ms thr=743.3tok/s skew=3ms 
+[0] N= 32768 B= 8 rep= 1 try=0 valid=1 tpot=18.38ms thr=435.3tok/s skew=3ms 
+[0] N= 32768 B=32 rep= 1 try=0 valid=1 tpot=28.62ms thr=1118.0tok/s skew=58ms 
+[0] N= 32768 B= 1 rep= 2 try=0 valid=1 tpot=15.01ms thr=66.6tok/s skew=0ms 
+[0] N= 32768 B=36 rep= 2 try=0 valid=1 tpot=37.44ms thr=961.6tok/s skew=66ms 
+[0] N= 32768 B=16 rep= 2 try=0 valid=1 tpot=21.52ms thr=743.6tok/s skew=2ms 
+[0] N= 32768 B=32 rep= 2 try=0 valid=1 tpot=28.60ms thr=1118.7tok/s skew=59ms 
+[0] N= 32768 B=24 rep= 2 try=0 valid=1 tpot=27.21ms thr=882.1tok/s skew=3ms 
+[0] N= 32768 B=12 rep= 2 try=0 valid=1 tpot=22.61ms thr=530.7tok/s skew=3ms 
+[0] N= 32768 B= 8 rep= 2 try=0 valid=1 tpot=18.25ms thr=438.3tok/s skew=2ms 
+[0] N= 32768 B=48 rep= 2 try=0 valid=1 tpot=39.47ms thr=1216.1tok/s skew=73ms 
+[0] N= 32768 B=28 rep= 2 try=0 valid=1 tpot=27.83ms thr=1006.0tok/s skew=4ms 
+[0] N= 32768 B=20 rep= 2 try=0 valid=1 tpot=26.89ms thr=743.7tok/s skew=3ms 
+[0] N= 32768 B=40 rep= 2 try=0 valid=1 tpot=37.75ms thr=1059.5tok/s skew=69ms 
+[0] N= 32768 B= 4 rep= 2 try=0 valid=1 tpot=16.53ms thr=242.0tok/s skew=2ms 
+[0] N= 32768 B=44 rep= 2 try=0 valid=0 tpot=38.60ms thr=1140.0tok/s skew=72ms evicted 256 tokens
+[0] N= 32768 B=44 rep= 2 try=1 valid=1 tpot=38.59ms thr=1140.1tok/s skew=69ms 
+[20:18:24] bench exit=0
+[20:18:24] server log: 0 retraction events
+decbatch_fa3_n32768_20261105_201117: 45 trials, 5 invalid ['evicted 256 tokens', 'evicted 512 tokens', 'prefix hit 0 < 32704']
+  N    B=1    B=4    B=8    B=16   B=20   B=24   B=28   B=32   B=36   B=40   B=44   B=48  
+  32K  1.00   3.62   6.54   11.15  11.13  13.21  15.05  16.74  14.39  15.87  17.06  18.18 
+[20:18:25] done: /home/users/ntu/ruiqi003/scratch/logs/decbatch_fa3_n32768_20261105_201117
+[20:18:36] cleanup done
+[20:18:36] config N=32768 exit=0

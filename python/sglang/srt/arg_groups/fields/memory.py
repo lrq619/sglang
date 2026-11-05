@@ -107,6 +107,19 @@ class Memory(msgspec.Struct):
         bool,
         "Admit a waiting request whose prefix is still pinned for it (release_pin_of) ahead of the rest of the queue, and pass over it instead of stopping when it does not fit, so a pin is held for the tool call rather than for the queue wait.",
     ] = False
+    prefix_pin_admit_first_scope: A[
+        str,
+        Arg(
+            help=(
+                "Which waiting requests --prefix-pin-admit-first moves ahead: "
+                "'pinned' (its release_pin_of pin is still held) or 'continuation' "
+                "(any request carrying release_pin_of, i.e. a later turn of a "
+                "session, pinned or not), so policies that do not pin get the "
+                "same scheduling order."
+            ),
+            choices=["pinned", "continuation"],
+        ),
+    ] = "pinned"
     prefix_pin_release_order: A[
         str,
         Arg(

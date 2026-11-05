@@ -93,9 +93,14 @@ class Schedule(msgspec.Struct):
                 "routing-key",
                 "hrrn",
                 "shortest-prefill-first",
+                "smallest-admission-first",
             ],
         ),
     ] = "fcfs"
+    saf_max_wait_s: A[
+        float,
+        "With --schedule-policy smallest-admission-first: a request waiting longer than this many seconds is no longer overtaken by smaller ones; such requests go first in arrival order.",
+    ] = 120.0
     enable_priority_scheduling: A[
         bool,
         "Enable priority scheduling. Requests with higher priority integer values will be scheduled first by default.",

@@ -1,0 +1,68 @@
+[18:58:50] config N=131072 slots=52 B=1/4/8/12/16
+[19:00:42] preloading /data/projects/12004493/models/Qwen3.8-27B into page cache
+[19:00:47] launching servers
+Launching 1 server(s) on GPU(s): GPU-9a763613-06c1-9e39-e68c-2e3dc93c18e8
+ready: http://127.0.0.1:30000
+[19:02:32] endpoints: http://127.0.0.1:30000
+[2026-11-05 19:01:52] max_running_requests is capped to 17 by the mamba state cache (max_mamba_cache_size=52, 3 state slots per request). To raise it: increase --mamba-full-memory-ratio or --max-mamba-cache-size, or halve the state size with --mamba-ssm-dtype bfloat16.
+[2026-11-05 19:01:52] Mamba Cache is allocated. max_mamba_cache_size: 52, conv_state size: 0.15GB, ssm_state size: 7.45GB 
+[2026-11-05 19:01:52] KV Cache is allocated. dtype: torch.float8_e4m3fn, #tokens: 2176442, K size: 33.21 GB, V size: 33.21 GB
+[2026-11-05 19:02:10] max_total_num_tokens=2176442, chunked_prefill_size=32768, max_prefill_tokens=32768, max_running_requests=17, context_len=262144, available_gpu_mem=13.09 GB
+[19:02:32] bench start
+[0] http://127.0.0.1:30000 KV pool 2176442 tokens, lens [131072]
+[0] N=131072 warmed 16 prompts in 428.7s
+[0] N=131072 B=16 rep=-1 try=0 valid=1 tpot=41.55ms thr=385.1tok/s skew=345ms 
+[0] N=131072 B= 8 rep= 0 try=0 valid=1 tpot=27.90ms thr=286.7tok/s skew=4ms 
+[0] N=131072 B= 4 rep= 0 try=0 valid=1 tpot=21.31ms thr=187.7tok/s skew=3ms 
+[0] N=131072 B= 1 rep= 0 try=0 valid=1 tpot=16.33ms thr=61.2tok/s skew=0ms 
+[0] N=131072 B=16 rep= 0 try=0 valid=1 tpot=41.57ms thr=384.9tok/s skew=295ms 
+[0] N=131072 B=12 rep= 0 try=0 valid=1 tpot=35.50ms thr=338.0tok/s skew=3ms 
+[0] N=131072 B= 1 rep= 1 try=0 valid=1 tpot=16.34ms thr=61.2tok/s skew=0ms 
+[0] N=131072 B= 8 rep= 1 try=0 valid=1 tpot=27.90ms thr=286.7tok/s skew=3ms 
+[0] N=131072 B= 4 rep= 1 try=0 valid=1 tpot=21.31ms thr=187.7tok/s skew=2ms 
+[0] N=131072 B=12 rep= 1 try=0 valid=1 tpot=35.46ms thr=338.4tok/s skew=59ms 
+[0] N=131072 B=16 rep= 1 try=0 valid=1 tpot=41.64ms thr=384.3tok/s skew=76ms 
+[0] N=131072 B= 4 rep= 2 try=0 valid=1 tpot=21.32ms thr=187.6tok/s skew=2ms 
+[0] N=131072 B= 1 rep= 2 try=0 valid=1 tpot=16.34ms thr=61.2tok/s skew=0ms 
+[0] N=131072 B=16 rep= 2 try=0 valid=1 tpot=41.61ms thr=384.5tok/s skew=84ms 
+[0] N=131072 B= 8 rep= 2 try=0 valid=1 tpot=27.87ms thr=287.0tok/s skew=3ms 
+[0] N=131072 B=12 rep= 2 try=0 valid=1 tpot=35.53ms thr=337.7tok/s skew=3ms 
+[19:10:46] bench exit=0
+[19:10:46] server log: 0 retraction events
+decbatch_ext_n131072_20261105_185852: 16 trials, 0 invalid 
+  N    B=1    B=4    B=8    B=16  
+ 128K  1.00   3.07   4.69   6.28  
+[19:10:52] done: /home/users/ntu/ruiqi003/scratch/logs/decbatch_ext_n131072_20261105_185852
+[19:11:02] cleanup done
+[19:11:02] config N=131072 exit=0
+[19:11:02] config N=98304 slots=68 B=1/16/20
+[19:11:08] preloading /data/projects/12004493/models/Qwen3.8-27B into page cache
+[19:11:09] launching servers
+Launching 1 server(s) on GPU(s): GPU-9a763613-06c1-9e39-e68c-2e3dc93c18e8
+ready: http://127.0.0.1:30000
+[19:11:54] endpoints: http://127.0.0.1:30000
+[2026-11-05 19:11:39] max_running_requests is capped to 22 by the mamba state cache (max_mamba_cache_size=68, 3 state slots per request). To raise it: increase --mamba-full-memory-ratio or --max-mamba-cache-size, or halve the state size with --mamba-ssm-dtype bfloat16.
+[2026-11-05 19:11:39] Mamba Cache is allocated. max_mamba_cache_size: 68, conv_state size: 0.19GB, ssm_state size: 9.70GB 
+[2026-11-05 19:11:39] KV Cache is allocated. dtype: torch.float8_e4m3fn, #tokens: 2101274, K size: 32.06 GB, V size: 32.06 GB
+[2026-11-05 19:11:41] max_total_num_tokens=2101274, chunked_prefill_size=32768, max_prefill_tokens=32768, max_running_requests=22, context_len=262144, available_gpu_mem=13.03 GB
+[19:11:54] bench start
+[0] http://127.0.0.1:30000 KV pool 2101274 tokens, lens [98304]
+[0] N=98304 warmed 20 prompts in 341.5s
+[0] N= 98304 B=20 rep=-1 try=0 valid=1 tpot=41.57ms thr=481.1tok/s skew=1971ms 
+[0] N= 98304 B= 1 rep= 0 try=0 valid=1 tpot=15.89ms thr=62.9tok/s skew=0ms 
+[0] N= 98304 B=20 rep= 0 try=0 valid=1 tpot=41.56ms thr=481.3tok/s skew=90ms 
+[0] N= 98304 B=16 rep= 0 try=0 valid=1 tpot=34.94ms thr=457.9tok/s skew=75ms 
+[0] N= 98304 B=20 rep= 1 try=0 valid=1 tpot=41.68ms thr=479.8tok/s skew=78ms 
+[0] N= 98304 B=16 rep= 1 try=0 valid=1 tpot=35.08ms thr=456.1tok/s skew=13ms 
+[0] N= 98304 B= 1 rep= 1 try=0 valid=1 tpot=15.89ms thr=62.9tok/s skew=0ms 
+[0] N= 98304 B= 1 rep= 2 try=0 valid=1 tpot=15.89ms thr=62.9tok/s skew=0ms 
+[0] N= 98304 B=16 rep= 2 try=0 valid=1 tpot=35.05ms thr=456.5tok/s skew=74ms 
+[0] N= 98304 B=20 rep= 2 try=0 valid=1 tpot=41.69ms thr=479.7tok/s skew=115ms 
+[19:18:21] bench exit=0
+[19:18:21] server log: 0 retraction events
+decbatch_ext_n98304_20261105_191103: 10 trials, 0 invalid 
+  N    B=1    B=16   B=20  
+  96K  1.00   7.26   7.63  
+[19:18:21] done: /home/users/ntu/ruiqi003/scratch/logs/decbatch_ext_n98304_20261105_191103
+[19:18:31] cleanup done
+[19:18:31] config N=98304 exit=0

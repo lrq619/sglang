@@ -1,0 +1,26 @@
+[12:00:09] preloading /data/projects/12004493/models/Qwen3.8-27B into page cache
+[12:00:16] launching server
+Launching 1 server(s) on GPU(s): GPU-a19c44be-3bf3-ae46-d4e8-fc8ee9371b78
+ready: http://127.0.0.1:30000
+[12:06:49] endpoint: http://127.0.0.1:30000
+[2026-11-05 12:01:30] max_running_requests is capped to 52 by the mamba state cache (max_mamba_cache_size=263, 5 state slots per request). To raise it: increase --mamba-full-memory-ratio or --max-mamba-cache-size, or halve the state size with --mamba-ssm-dtype bfloat16.
+[2026-11-05 12:01:30] Mamba Cache is allocated. max_mamba_cache_size: 263, conv_state size: 0.73GB, ssm_state size: 37.12GB 
+[2026-11-05 12:01:30] KV Cache is allocated. dtype: torch.float8_e4m3fn, #tokens: 957109, K size: 14.60 GB, V size: 14.60 GB
+[2026-11-05 12:06:12] max_total_num_tokens=957109, chunked_prefill_size=32768, max_prefill_tokens=32768, max_running_requests=52, context_len=262144, available_gpu_mem=11.39 GB
+[12:06:49] bench start
+[1/4] rep=0         A valid=0 tpot=15.96ms e2e=4494.91ms ttft=2468.57ms cached_min=512 stress_wait=0.0s stress_tok@start= retraction/eviction counters not exported
+[2/4] rep=0    C(128) valid=0 tpot=16.61ms e2e=2309.20ms ttft=199.99ms cached_min=512 stress_wait=0.3s stress_tok@start=4,4,4,4,4,4,4,4 retraction/eviction counters not exported
+[3/4] rep=0   C(8192) valid=0 tpot=17.50ms e2e=2286.91ms ttft=64.85ms cached_min=512 stress_wait=5.8s stress_tok@start=4,4,4,4,4,4,4,4 retraction/eviction counters not exported
+[4/4] rep=0  C(98304) valid=0 tpot=26.81ms e2e=3486.12ms ttft=81.49ms cached_min=512 stress_wait=136.2s stress_tok@start=4,4,4,4,4,4,4,4 retraction/eviction counters not exported
+[12:09:26] bench exit=0
+/home/users/ntu/ruiqi003/proj/sglang/loadgen/plot_long_kv.py:115: UserWarning: No artists with labels found to put in legend.  Note that artists whose label start with an underscore are ignored when legend() is called with no argument.
+  ax.legend()
+/home/users/ntu/ruiqi003/proj/sglang/loadgen/plot_long_kv.py:115: UserWarning: No artists with labels found to put in legend.  Note that artists whose label start with an underscore are ignored when legend() is called with no argument.
+  ax.legend()
+     point   n inv        TPOT ms     xA  xLmin           E2E ms     xA  xLmin
+         A   0   1 -+--      -      - -+--      -      -  retraction/eviction counters not exported
+    C(128)   0   1 -+--      -      - -+--      -      -  retraction/eviction counters not exported
+   C(8192)   0   1 -+--      -      - -+--      -      -  retraction/eviction counters not exported
+  C(98304)   0   1 -+--      -      - -+--      -      -  retraction/eviction counters not exported
+[12:09:32] done: /home/users/ntu/ruiqi003/scratch/logs/longkv_smoke_20261105_115817
+[12:09:42] cleanup done

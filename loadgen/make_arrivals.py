@@ -6,6 +6,11 @@ cycle. Any time window therefore sees a balanced task mix. Every arrival is a
 separate replica (its own salt in loadgen.py), so replicas of the same
 trajectory never hit each other's cache beyond the shared system prompt.
 
+Gaps and the session order come from separate RNG streams of the same seed, so
+for a given seed the k-th arrival is the same session at every rate, at a time
+that scales with 1/rate: a lower-rate schedule is a prefix of a higher-rate one
+played slower.
+
 Output is JSONL, one arrival per line, sorted by arrival_offset (seconds from
 loadgen start):
     {"replica_id": 0, "session_id": "0c21c0eeb4fabe14", "arrival_offset": 12.3}
@@ -41,7 +46,8 @@ def main():
         session_ids = [json.loads(line)["session_id"] for line in f if line.strip()]
     assert session_ids, "empty corpus"
 
-    rng = random.Random(args.seed)
+    gap_rng = random.Random(f"{args.seed}/gaps")
+    deck_rng = random.Random(f"{args.seed}/deck")
     mean_gap = 60.0 / args.rate_per_min
     horizon = args.duration_min * 60.0 if args.duration_min is not None else None
 
@@ -50,7 +56,7 @@ def main():
     while True:
         if args.num_sessions is not None and len(offsets) >= args.num_sessions:
             break
-        t += rng.expovariate(1.0 / mean_gap) if args.pattern == "poisson" else mean_gap
+        t += gap_rng.expovariate(1.0 / mean_gap) if args.pattern == "poisson" else mean_gap
         if horizon is not None and t > horizon:
             break
         offsets.append(t)
@@ -60,7 +66,7 @@ def main():
         for replica_id, offset in enumerate(offsets):
             if not deck:
                 deck = session_ids[:]
-                rng.shuffle(deck)
+                deck_rng.shuffle(deck)
             rec = {
                 "replica_id": replica_id,
                 "session_id": deck.pop(),

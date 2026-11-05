@@ -1,0 +1,13 @@
+[18:06:59] config N=261952 slots=28 B=1/4/8
+[18:10:04] preloading /data/projects/12004493/models/Qwen3.8-27B into page cache
+[18:10:12] launching servers
+Launching 1 server(s) on GPU(s): GPU-34a2b1bf-b0f6-db73-6795-020323398366
+ready: http://127.0.0.1:30000
+[18:13:47] endpoints: http://127.0.0.1:30000
+[2026-11-05 18:12:05] max_running_requests is capped to 9 by the mamba state cache (max_mamba_cache_size=28, 3 state slots per request). To raise it: increase --mamba-full-memory-ratio or --max-mamba-cache-size, or halve the state size with --mamba-ssm-dtype bfloat16.
+[2026-11-05 18:12:05] Mamba Cache is allocated. max_mamba_cache_size: 28, conv_state size: 0.08GB, ssm_state size: 4.08GB 
+[2026-11-05 18:12:05] KV Cache is allocated. dtype: torch.float8_e4m3fn, #tokens: 2289194, K size: 34.93 GB, V size: 34.93 GB
+[2026-11-05 18:12:40] max_total_num_tokens=2289194, chunked_prefill_size=32768, max_prefill_tokens=32768, max_running_requests=9, context_len=262144, available_gpu_mem=13.16 GB
+[18:13:47] bench start
+[0] http://127.0.0.1:30000 KV pool 2289194 tokens, lens [261952]
+[0] N=261952 warmed 8 prompts in 681.6s

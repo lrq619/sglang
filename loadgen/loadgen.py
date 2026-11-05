@@ -4,7 +4,8 @@ Each arrival in the schedule replays one trajectory from the corpus as a
 separate replica: every turn is a native /generate request with input_ids, the
 dummy output stays in the context, and the next turn is sent
 turn_toolcall_latency_ms after the previous one finishes. All turns of a
-replica go to the same endpoint (round-robin by arrival order).
+replica go to the same endpoint (round-robin by arrival order, unless the
+arrival carries an endpoint_index).
 
 The servers must run with --enable-metrics; otherwise queue / prefill / decode
 latencies are missing from meta_info and those columns stay empty.
@@ -93,6 +94,10 @@ class Arrival(NamedTuple):
     session_id: str
     arrival_offset: float
     endpoint: str
+    # --session-priority: every turn carries the session's arrival time in ms, so a
+    # server run with --enable-priority-scheduling --schedule-low-priority-values-first
+    # orders its queue by session (program-level FCFS); None sends no priority.
+    priority: Optional[int] = None
 
 
 class TurnResult(NamedTuple):
@@ -141,7 +146,9 @@ def _attach_decision_toolcall(*, corpus: dict, pred_path: Optional[str]) -> None
               f"{missing} turns fall back to the true latency")
 
 
-def _load_arrivals(*, path: str, corpus: dict, endpoints: list) -> list:
+def _load_arrivals(
+    *, path: str, corpus: dict, endpoints: list, session_priority: bool = False
+) -> list:
     with open(path) as f:
         recs = [json.loads(line) for line in f if line.strip()]
     recs.sort(key=lambda r: r["arrival_offset"])
@@ -154,12 +161,19 @@ def _load_arrivals(*, path: str, corpus: dict, endpoints: list) -> list:
         seen.add(replica_id)
         if r["session_id"] not in corpus:
             sys.exit(f"session {r['session_id']} in {path} is not in the corpus")
+        # An arrival may pin its endpoint (static routing); otherwise round-robin.
+        idx = int(r.get("endpoint_index", i % len(endpoints)))
+        if not 0 <= idx < len(endpoints):
+            sys.exit(f"endpoint_index {idx} in {path} but only {len(endpoints)} endpoints")
         arrivals.append(
             Arrival(
                 replica_id=replica_id,
                 session_id=r["session_id"],
                 arrival_offset=float(r["arrival_offset"]),
-                endpoint=endpoints[i % len(endpoints)],
+                endpoint=endpoints[idx],
+                priority=(
+                    round(float(r["arrival_offset"]) * 1000) if session_priority else None
+                ),
             )
         )
     return arrivals
@@ -182,12 +196,16 @@ async def _fetch_salts(
 
 
 def _insert_salt(*, ids: list, salt: list) -> list:
-    """Insert salt right after the first <|im_start|>user\\n."""
+    """Insert salt right after the first <|im_start|>user\\n, else at the start.
+
+    Corpora with anonymized token ids (trace_lab) carry no chat template and share
+    no prefix across sessions, so salting from token 0 loses no cache hits.
+    """
     n = len(USER_TAG)
     for i in range(len(ids) - n + 1):
         if ids[i : i + n] == USER_TAG:
             return ids[: i + n] + salt + ids[i + n :]
-    raise ValueError("reset row has no <|im_start|>user\\n to salt")
+    return salt + ids
 
 
 # ===== Requests =====
@@ -195,7 +213,7 @@ def _insert_salt(*, ids: list, salt: list) -> list:
 
 async def _generate(
     *, http: aiohttp.ClientSession, endpoint: str, rid: str, ctx: list, max_new: int,
-    pin_fields: dict,
+    pin_fields: dict, priority: Optional[int] = None,
 ) -> TurnResult:
     payload = {
         "rid": rid,
@@ -207,6 +225,7 @@ async def _generate(
         },
         "stream": False,
         **pin_fields,
+        **({} if priority is None else {"priority": priority}),
     }
     t_send = time.time()
     async with http.post(f"{endpoint}/generate", json=payload) as resp:
@@ -425,6 +444,7 @@ async def _replay_turns(
                     pin_fields=_pin_fields(
                         pin=pin, prev_rid=prev_rid, is_last=i + 1 == len(turns), turn=turn
                     ),
+                    priority=arrival.priority,
                 )
             except Exception as e:
                 # The context cannot be continued without this turn's output.
@@ -525,6 +545,10 @@ def _pin_fields(*, pin: str, prev_rid: Optional[str], is_last: bool, turn: dict)
     pile up session after session (a controller that forgets to unpin)."""
     if pin == "none":
         return {}
+    if pin == "continue":
+        # Never pinned; release_pin_of only marks a later turn of the session, which
+        # --prefix-pin-admit-first-scope continuation moves ahead of first turns.
+        return {"release_pin_of": prev_rid} if prev_rid is not None else {}
     # cost pins like handover; the sidecar then decides whether to release.
     fields = {"release_pin_of": prev_rid} if prev_rid is not None else {}
     if not is_last:
@@ -571,7 +595,10 @@ async def run(args):
     endpoints = [e.strip().rstrip("/") for e in args.endpoints.split(",") if e.strip()]
     corpus = _load_corpus(args.corpus)
     _attach_decision_toolcall(corpus=corpus, pred_path=args.toolcall_pred)
-    arrivals =_load_arrivals(path=args.arrivals, corpus=corpus, endpoints=endpoints)
+    arrivals = _load_arrivals(
+        path=args.arrivals, corpus=corpus, endpoints=endpoints,
+        session_priority=args.session_priority,
+    )
     print(
         f"{len(arrivals)} arrivals of {len(corpus)} trajectories over "
         f"{arrivals[-1].arrival_offset / 60:.1f} min -> {len(endpoints)} endpoints"
@@ -677,13 +704,15 @@ def main():
     parser.add_argument("--progress-interval", type=float, default=30.0)
     parser.add_argument(
         "--pin-mode",
-        choices=["none", "handover", "leak", "cost"],
+        choices=["none", "handover", "leak", "cost", "continue"],
         default="none",
         help="prefix pins (server needs --enable-prefix-pin): 'handover' pins each "
         "turn through its tool call and releases it when the next turn is "
         "admitted; 'leak' also pins every session's last turn and never "
         "releases it; 'cost' pins like handover, then asks --predictor's "
-        "/pin_decision at each turn end whether to keep the pin",
+        "/pin_decision at each turn end whether to keep the pin; 'continue' "
+        "never pins but marks later turns (release_pin_of) for "
+        "--prefix-pin-admit-first-scope continuation",
     )
     parser.add_argument(
         "--predictor",
@@ -695,6 +724,13 @@ def main():
         help="CSV (session_id, turn_id, predicted_bucket) whose bucket midpoints "
         "replace the true tool latency in pin decisions and pin_expected_return_s "
         "(default: the true latency, i.e. the oracle)",
+    )
+    parser.add_argument(
+        "--session-priority",
+        action="store_true",
+        help="send each turn with priority = its session's arrival time in ms, for "
+        "program-level FCFS on a server run with --enable-priority-scheduling "
+        "--schedule-low-priority-values-first",
     )
     parser.add_argument(
         "--pin",
